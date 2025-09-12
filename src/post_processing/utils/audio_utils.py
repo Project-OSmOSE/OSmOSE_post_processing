@@ -71,8 +71,8 @@ def create_raven_file_list(directory: Path) -> None:
     """
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    # get file list
-    files = list(directory.rglob(r"*.wav"))
+    # get file list. Don't take the 1ko files into account, because Raven can't open them (makes it crash)
+    files = [f for f in directory.rglob("*.wav") if f.stat().st_size > 1024]
 
     # save file list as a txt file
     filename = directory / "Raven_file_list.txt"
