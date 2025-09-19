@@ -23,11 +23,12 @@ from post_processing.utils.metrics_utils import detection_perf
 from post_processing.utils.plot_utils import (
     agreement,
     histo,
-    map_detection_timeline,
     overview,
     timeline,
+    scatter,
 )
 from post_processing.utils.filtering_utils import get_timezone
+from utils.plot_utils import heatmap
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -357,18 +358,29 @@ class DataAplose:
                 coordinates=(self.lat, self.lon),
             )
 
-        if mode in {"scatter", "heatmap"}:
+        if mode == "heatmap":
+            show_rise_set = kwargs.get("show_rise_set", True)
+            season = kwargs.get("season", False)
+            bin_size = kwargs.get("bin_size")
+
+            return heatmap(df=df_filtered,
+                           ax=ax,
+                           bin_size=bin_size,
+                           show_rise_set=show_rise_set,
+                           season=season,
+                           coordinates=self.coordinates,
+                           )
+
+        if mode == "scatter":
             show_rise_set = kwargs.get("show_rise_set", True)
             season = kwargs.get("season", False)
 
-            return map_detection_timeline(
-                df=df_filtered,
-                ax=ax,
-                coordinates=(self.lat, self.lon),
-                mode=mode,
-                show_rise_set=show_rise_set,
-                season=season,
-            )
+            return scatter(df=df_filtered,
+                           ax=ax,
+                           show_rise_set=show_rise_set,
+                           season=season,
+                           coordinates=self.coordinates,
+                           )
 
         if mode == "agreement":
             bin_size = kwargs.get("bin_size")

@@ -544,7 +544,7 @@ def round_begin_end_timestamps(timestamp_list: list[Timestamp],
         end = bin_size.rollforward(max(timestamp_list))
         if not isinstance(bin_size, (offsets.Hour, offsets.Minute, offsets.Second)):
             start = Timestamp(start).normalize()
-            end = Timestamp(end).normalize()
+            end = Timestamp(end).normalize() + bin_size
             if start == end:
                 end += bin_size
 

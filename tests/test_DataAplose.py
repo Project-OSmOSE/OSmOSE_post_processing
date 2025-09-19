@@ -130,8 +130,9 @@ def test_plot_scatter_heatmap_timeline(sample_df: DataFrame, mode: str) -> None:
     data = DataAplose(sample_df)
     data.lon = 0
     data.lat = 0
+    bins = frequencies.to_offset("10s")
     fig, ax = plt.subplots()
-    data.plot(mode=mode, ax=ax, annotator="ann1", label="lbl1", color="red")
+    data.plot(mode=mode, ax=ax, annotator="ann1", label="lbl1", bin_size=bins, color="red")
 
 
 def test_plot_invalid_mode(sample_df: DataFrame) -> None:
