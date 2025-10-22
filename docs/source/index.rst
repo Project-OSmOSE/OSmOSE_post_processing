@@ -6,7 +6,7 @@
 OSmOSE_post_processing documentation
 ====================================
 
-OSmOSE_post_processing is an open-source python repository to process passive acoustic data particularly marine mammals automatic detections and manual annotations.
+**OSmOSE_post_processing** is an open-source python repository to process passive acoustic data particularly marine mammals automatic detections and manual annotations.
 All results are formatted to suit `OSmOSE <https://github.com/Project-OSmOSE/>`_ convention.
 
 ====================
@@ -14,20 +14,27 @@ All results are formatted to suit `OSmOSE <https://github.com/Project-OSmOSE/>`_
 :ref:`Installation <installation>`
 ----------------------------------
 
-Instructions on how to install OSmOSE_post_processing.
+Instructions on how to install **OSmOSE_post_processing** package.
 
 ====================
 
 :ref:`Usage <usage>`
 ----------------------------------
 
-Instructions on how to use **OSmOSE_post_processing**.
+Instructions on how to use **OSmOSE_post_processing** package.
+
+====================
+
+:ref:`Examples <examples>`
+----------------------------------
+
+A set of jupyter notebooks that complete typical tasks.
 
 
 ====================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :includehidden:
 
    installation
