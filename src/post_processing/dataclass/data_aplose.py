@@ -167,7 +167,7 @@ class DataAplose:
         return self.df.iloc[item]
 
     def change_tz(self, tz: str | tzinfo) -> None:
-        """Change the timezone of the DataFrame."""
+        """Change the timezone of the DataFrame and of the begin and end Timestamps."""
         self.df["start_datetime"] = [
             elem.tz_convert(tz)
             for elem in self.df["start_datetime"]
@@ -176,6 +176,8 @@ class DataAplose:
             elem.tz_convert(tz)
             for elem in self.df["end_datetime"]
         ]
+        self.begin = self.begin.tz_convert(tz)
+        self.end = self.end.tz_convert(tz)
 
     def filter_df(
         self,
