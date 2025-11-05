@@ -231,18 +231,21 @@ def test_read_dataframe_nrows(tmp_path: Path) -> None:
 
 
 def test_no_timebin_returns_original(sample_df: DataFrame) -> None:
-    tz = get_timezone(sample_df)
-    timestamp_wav = to_datetime(sample_df["filename"],
-                                format="%Y_%m_%d_%H_%M_%S").dt.tz_localize(tz)
-    df_out = reshape_timebin(sample_df, timestamp_wav, timebin_new=None)
+    df_out = reshape_timebin(sample_df, timebin_new=None)
     assert df_out.equals(sample_df)
 
 
 def test_no_timebin_original_timebin(sample_df: DataFrame) -> None:
     tz = get_timezone(sample_df)
-    timestamp_wav = to_datetime(sample_df["filename"],
-                                format="%Y_%m_%d_%H_%M_%S").dt.tz_localize(tz)
-    df_out = reshape_timebin(sample_df, timestamp_wav, timebin_new=Timedelta("1min"))
+    timestamp_wav = to_datetime(
+        sample_df["filename"],
+        format="%Y_%m_%d_%H_%M_%S"
+    ).dt.tz_localize(tz)
+    df_out = reshape_timebin(
+        sample_df,
+        timestamp_audio=timestamp_wav,
+        timebin_new=Timedelta("1min"),
+    )
     expected = DataFrame(
         {
             "dataset": ["sample_dataset"] * 18,
@@ -325,9 +328,15 @@ def test_no_timebin_original_timebin(sample_df: DataFrame) -> None:
 
 def test_simple_reshape_hourly(sample_df: DataFrame) -> None:
     tz = get_timezone(sample_df)
-    timestamp_wav = to_datetime(sample_df["filename"],
-                                format="%Y_%m_%d_%H_%M_%S").dt.tz_localize(tz)
-    df_out = reshape_timebin(sample_df, timestamp_wav, timebin_new=Timedelta(hours=1))
+    timestamp_wav = to_datetime(
+        sample_df["filename"],
+        format="%Y_%m_%d_%H_%M_%S"
+    ).dt.tz_localize(tz)
+    df_out = reshape_timebin(
+        sample_df,
+        timestamp_audio=timestamp_wav,
+        timebin_new=Timedelta(hours=1),
+    )
     assert not df_out.empty
     assert all(df_out["end_time"] == 3600.0)
     assert df_out["end_frequency"].max() == sample_df["end_frequency"].max()
@@ -337,37 +346,20 @@ def test_simple_reshape_hourly(sample_df: DataFrame) -> None:
 
 def test_reshape_daily_multiple_bins(sample_df: DataFrame) -> None:
     tz = get_timezone(sample_df)
-    timestamp_wav = to_datetime(sample_df["filename"],
-                                format="%Y_%m_%d_%H_%M_%S").dt.tz_localize(tz)
-    df_out = reshape_timebin(sample_df, timestamp_wav, timebin_new=Timedelta(days=1))
+    timestamp_wav = to_datetime(
+        sample_df["filename"],
+        format="%Y_%m_%d_%H_%M_%S"
+    ).dt.tz_localize(tz)
+    df_out = reshape_timebin(
+        sample_df,
+        timestamp_audio=timestamp_wav,
+        timebin_new=Timedelta(days=1),
+    )
     assert not df_out.empty
     assert all(df_out["end_time"] == 86400.0)
     assert df_out["start_datetime"].min() >= sample_df["start_datetime"].min().floor("D")
     assert df_out["end_datetime"].max() <= sample_df["end_datetime"].max().ceil("D")
 
-
-def test_with_manual_timestamps_vector(sample_df: DataFrame) -> None:
-    t0 = sample_df["start_datetime"].min().floor("30min")
-    t1 = sample_df["end_datetime"].max().ceil("30min")
-    ts_vec = list(date_range(t0, t1, freq="30min"))
-    tz = get_timezone(sample_df)
-    timestamp_wav = to_datetime(sample_df["filename"],
-                                format="%Y_%m_%d_%H_%M_%S").dt.tz_localize(tz)
-    df_out = reshape_timebin(
-        sample_df,
-        timestamp_wav,
-        timebin_new=Timedelta(hours=1),
-        timestamp=ts_vec,
-    )
-
-    assert not df_out.empty
-    assert all(isinstance(t, Timestamp) for t in df_out["start_datetime"])
-    assert df_out["end_time"].iloc[0] == 3600.0
-
-
 def test_empty_result_when_no_matching(sample_df: DataFrame) -> None:
-    tz = get_timezone(sample_df)
-    timestamp_wav = to_datetime(sample_df["filename"],
-                                format="%Y_%m_%d_%H_%M_%S").dt.tz_localize(tz)
     with pytest.raises(ValueError, match="DataFrame is empty"):
-        reshape_timebin(DataFrame(), timestamp_wav, Timedelta(hours=1))
+        reshape_timebin(DataFrame())
