@@ -3,7 +3,7 @@ from datetime import timezone
 from pathlib import Path
 
 import pytest
-from pandas import DataFrame, Timedelta, Timestamp, date_range, to_datetime
+from pandas import DataFrame, Timedelta, Timestamp, to_datetime
 
 from post_processing.utils.filtering_utils import (
     filter_by_annotator,

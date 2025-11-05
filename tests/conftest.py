@@ -1,16 +1,13 @@
 import io
 import os
 from pathlib import Path
-from sqlite3.dbapi2 import Timestamp
 
 import numpy as np
 import pytest
 import soundfile as sf
 import yaml
 from osekit.utils.timestamp_utils import strftime_osmose_format
-from pandas import DataFrame, read_csv, to_datetime
-
-from post_processing.utils.filtering_utils import get_timezone, read_dataframe
+from pandas import DataFrame, read_csv
 
 SAMPLE = """dataset,filename,start_time,end_time,start_frequency,end_frequency,annotation,annotator,start_datetime,end_datetime,is_box,score
 sample_dataset,2025_01_25_06_20_00,0.0,10.0,0.0,72000.0,lbl2,ann2,2025-01-25T06:20:00.000+00:00,2025-01-25T06:20:10.000+00:00,0,0.11
