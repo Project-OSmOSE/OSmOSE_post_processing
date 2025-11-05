@@ -186,6 +186,7 @@ def get_timezone(df: DataFrame) -> tzoffset | list[tzoffset]:
 
 def reshape_timebin(
     df: DataFrame,
+    timestamp_wav: list[Timestamp],
     timebin_new: Timedelta | None,
     timestamp: list[Timestamp] | None = None,
 ) -> DataFrame:
@@ -198,7 +199,10 @@ def reshape_timebin(
     timebin_new: Timedelta
         The size of the new time bin.
     timestamp: list[Timestamp]
-        A list of Timestamp objects.
+        A list of Timestamp objects corresponding to the shape
+        in which the data should be reshaped.
+    timestamp_wav: list[Timestamp]
+        A list of the start datetime of each wavfile. Length should be the same as df
 
     Returns
     -------
@@ -219,8 +223,10 @@ def reshape_timebin(
     dataset = get_dataset(df)
 
     if isinstance(get_timezone(df), list):
-       df["start_datetime"] = [to_datetime(elem, utc=True) for elem in df["start_datetime"]]
-       df["end_datetime"] = [to_datetime(elem, utc=True) for elem in df["end_datetime"]]
+        df["start_datetime"] = [to_datetime(elem, utc=True)
+                                for elem in df["start_datetime"]]
+        df["end_datetime"] = [to_datetime(elem, utc=True)
+                              for elem in df["end_datetime"]]
 
     results = []
     for ant in annotators:
@@ -246,14 +252,19 @@ def reshape_timebin(
             filenames = df_1annot_1label["filename"].to_list()
 
             # filename_vector
-            filename_vector = [
-                filenames[
-                    bisect.bisect_left(ts_detect_beg, ts) - (ts not in ts_detect_beg)
-                ]
-                if bisect.bisect_left(ts_detect_beg, ts) > 0
-                else filenames[0]
-                for ts in time_vector
-            ]
+            filename_vector = []
+            for ts in time_vector:
+                if (bisect.bisect_left(ts_detect_beg, ts) > 0 and
+                        bisect.bisect_left(ts_detect_beg, ts) != len(ts_detect_beg)):
+                    idx = bisect.bisect_left(ts_detect_beg, ts)
+                    filename_vector.append(
+                        filenames[idx] if timestamp_wav[idx] <= ts else
+                        filenames[idx - 1],
+                    )
+                elif bisect.bisect_left(ts_detect_beg, ts) == len(ts_detect_beg):
+                    filename_vector.append(filenames[-1])
+                else:
+                    filename_vector.append(filenames[0])
 
             # detection vector
             detect_vec = [0] * len(time_vector)
@@ -293,7 +304,8 @@ def reshape_timebin(
                     ),
                 )
 
-    return concat(results).sort_values(by=["start_datetime", "end_datetime", "annotator", "annotation"]).reset_index(drop=True)
+    return concat(results).sort_values(by=["start_datetime", "end_datetime",
+                                           "annotator", "annotation"]).reset_index(drop=True)
 
 
 def ensure_in_list(value: str, candidates: list[str], label: str) -> None:
