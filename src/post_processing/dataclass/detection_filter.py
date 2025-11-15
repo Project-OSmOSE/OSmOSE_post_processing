@@ -42,6 +42,7 @@ class DetectionFilter:
     f_max: float | None = None
     score: float | None = None
     box: bool = False
+    filename_format: str = None
 
     @classmethod
     def from_yaml(
@@ -86,7 +87,6 @@ class DetectionFilter:
         filters = []
         for detection_file, filters_dict in parameters.items():
             df_preview = read_dataframe(Path(detection_file), nrows=5)
-
             filters_dict["timebin_origin"] = Timedelta(
                 max(df_preview["end_time"]),
                 "s",
