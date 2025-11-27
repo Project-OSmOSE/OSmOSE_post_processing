@@ -177,7 +177,7 @@ def get_dataset(df: DataFrame) -> list[str]:
 
 
 def get_timezone(df: DataFrame) -> tzoffset | list[tzoffset]:
-    """Return timezone(s) from DataFrame.
+    """Return timezone(s) from APLOSE DataFrame.
 
     Parameters
     ----------
@@ -204,8 +204,8 @@ def check_timestamp(df: DataFrame, timestamp_audio: list[Timestamp]) -> None:
     df: DataFrame
         APLOSE results Dataframe
     timestamp_audio: list[Timestamp]
-        list of start timestamps for each audio file
-        corresponding to a detection.
+        A list of timestamps. Each timestamp is the start datetime of the
+        corresponding audio file for each detection in df.
 
     """
     if timestamp_audio is None:
@@ -229,7 +229,8 @@ def reshape_timebin(
     df: DataFrame
         An APLOSE result DataFrame.
     timestamp_audio: list[Timestamp]
-        A list of the start datetime of each wavfile. Length should be the same as df
+        A list of timestamps. Each timestamp is the start datetime of the
+        corresponding audio file for each detection in df.
     timebin_new: Timedelta
         The size of the new time bin.
 
@@ -255,9 +256,11 @@ def reshape_timebin(
 
     if isinstance(get_timezone(df), list):
         df["start_datetime"] = [to_datetime(elem, utc=True)
-                                for elem in df["start_datetime"]]
+                                for elem in df["start_datetime"]
+                                ]
         df["end_datetime"] = [to_datetime(elem, utc=True)
-                              for elem in df["end_datetime"]]
+                              for elem in df["end_datetime"]
+                              ]
 
     results = []
     for ant in annotators:
@@ -328,8 +331,10 @@ def reshape_timebin(
                     ),
                 )
 
-    return concat(results).sort_values(by=["start_datetime", "end_datetime",
-                                           "annotator", "annotation"]).reset_index(drop=True)
+    return (concat(results)
+            .sort_values(by=["start_datetime", "end_datetime", "annotator", "annotation"])
+            .reset_index(drop=True)
+            )
 
 
 def ensure_in_list(value: str, candidates: list[str], label: str) -> None:
@@ -371,7 +376,7 @@ def get_filename_timestamps(df: DataFrame, date_parser: str) -> list[Timestamp]:
         ).tz_localize(tz) for ts in df["filename"]
         ]
     except ValueError:
-        msg = """Could not parse timestamps from `df["filename"]`."""
+        msg = """Could not parse timestamps from df["filename"]."""
         raise ValueError(msg) from None
 
 
@@ -399,7 +404,7 @@ def load_detections(filters: DetectionFilter) -> DataFrame:
     df = reshape_timebin(
         df,
         timebin_new=filters.timebin_new,
-        timestamp_audio=filename_ts
+        timestamp_audio=filename_ts,
     )
 
     annotators = get_annotators(df)

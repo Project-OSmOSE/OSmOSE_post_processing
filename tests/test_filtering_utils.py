@@ -177,9 +177,9 @@ def test_get_timezone_single(sample_df: DataFrame) -> None:
 
 def test_get_filename_timestamp(sample_df: DataFrame, sample_yaml: Path) -> None:
     tz = get_timezone(sample_df)
-    with open(sample_yaml, "r") as f:
+    with sample_yaml.open(encoding="utf-8") as f:
         data_yaml = yaml.safe_load(f)
-    sample_key = list(data_yaml.keys())[0]
+    sample_key = next(iter(data_yaml.keys()))
     date_parser = data_yaml[sample_key]["filename_format"]
     assert isinstance(to_datetime(sample_df["filename"][0],
                                   format=date_parser).tz_localize(tz),
@@ -201,10 +201,13 @@ def test_check_timestamp_none(sample_df: DataFrame) -> None:
     with pytest.raises(ValueError, match="`timestamp_wav` is empty"):
         check_timestamp(sample_df, None)
 
-def test_check_timestamp_wrong_length(sample_df: DataFrame) -> None:
-    len_sample_df = len(sample_df)+1
-    timestamps = [Timestamp("2025-01-01") + Timedelta(days=i) for i in range(len_sample_df)]  # shorter list
 
+def test_check_timestamp_wrong_length(sample_df: DataFrame) -> None:
+    len_sample_df = len(sample_df) + 1
+    timestamps = [
+        Timestamp("2025-01-01") + Timedelta(days=i)
+        for i in range(len_sample_df)
+    ]  # shorter list
     with pytest.raises(ValueError, match="`timestamp_wav` is not the same length as `df`"):
         check_timestamp(sample_df, timestamps)
 # %% read DataFrame
@@ -395,7 +398,7 @@ def test_reshape_daily_multiple_bins(sample_df: DataFrame) -> None:
     assert df_out["start_datetime"].min() >= sample_df["start_datetime"].min().floor("D")
     assert df_out["end_datetime"].max() <= sample_df["end_datetime"].max().ceil("D")
 
+
 def test_empty_result_when_no_matching(sample_df: DataFrame) -> None:
     with pytest.raises(ValueError, match="DataFrame is empty"):
         reshape_timebin(DataFrame())
-
