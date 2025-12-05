@@ -1,10 +1,13 @@
 import csv
+from datetime import timezone, UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+import yaml
 
 import pytest
 import pytz
 from pandas import DataFrame, Timedelta, Timestamp, date_range, concat, to_datetime
+from pandas import DataFrame, Timedelta, Timestamp, to_datetime, testing, Series
 
 from post_processing.utils.filtering_utils import (
     filter_by_annotator,
@@ -25,6 +28,7 @@ from post_processing.utils.filtering_utils import (
     get_canonical_tz,
     ensure_no_invalid,
     intersection_or_union,
+    reshape_timebin, get_filename_timestamps, check_timestamp,
 )
 
 # %% find delimiter
@@ -290,6 +294,9 @@ def test_get_canonical_tz_raises_on_unknown():
 
 def test_get_timezone_single(sample_df: DataFrame) -> None:
     tz = get_timezone(sample_df)
+    assert isinstance(tz, timezone)
+    assert tz == UTC
+
     assert tz == pytz.utc
 
 
@@ -317,6 +324,42 @@ def test_get_timezone_several(sample_df: DataFrame) -> None:
     assert pytz.UTC in tz
     assert pytz.FixedOffset(420) in tz
 
+def test_get_filename_timestamp(sample_df: DataFrame, sample_yaml: Path) -> None:
+    tz = get_timezone(sample_df)
+    with sample_yaml.open(encoding="utf-8") as f:
+        data_yaml = yaml.safe_load(f)
+    sample_key = next(iter(data_yaml.keys()))
+    date_parser = data_yaml[sample_key]["filename_format"]
+    assert isinstance(to_datetime(sample_df["filename"][0],
+                                  format=date_parser).tz_localize(tz),
+                      datetime)
+    results = get_filename_timestamps(sample_df, date_parser)
+    expected_timestamps = [
+        to_datetime(
+            ts,
+            format=date_parser
+        ).tz_localize(tz) for ts in sample_df["filename"]
+        ]
+    assert len(results) == len(sample_df)
+    assert all(isinstance(ts, Timestamp) for ts in results)
+    testing.assert_series_equal(Series(results), Series(expected_timestamps),
+                                check_names=False)
+
+
+@pytest.mark.parametrize("timestamp", [None, []])
+def test_check_timestamp_empty(sample_df: DataFrame, timestamp: list | None) -> None:
+    with pytest.raises(ValueError, match="`timestamp_wav` is empty"):
+        check_timestamp(sample_df, timestamp)
+
+
+def test_check_timestamp_wrong_length(sample_df: DataFrame) -> None:
+    len_sample_df = len(sample_df) + 1
+    timestamps = [
+        Timestamp("2025-01-01") + Timedelta(days=i)
+        for i in range(len_sample_df)
+    ]  # shorter list
+    with pytest.raises(ValueError, match="`timestamp_wav` is not the same length as `df`"):
+        check_timestamp(sample_df, timestamps)
 # %% read DataFrame
 
 def test_read_dataframe_comma_delimiter(tmp_path: Path) -> None:
@@ -404,7 +447,16 @@ def test_no_timebin_several_tz(sample_df: DataFrame) -> None:
 
 
 def test_no_timebin_original_timebin(sample_df: DataFrame) -> None:
-    df_out = reshape_timebin(sample_df, timebin_new=Timedelta("1min"))
+    tz = get_timezone(sample_df)
+    timestamp_wav = to_datetime(
+        sample_df["filename"],
+        format="%Y_%m_%d_%H_%M_%S"
+    ).dt.tz_localize(tz)
+    df_out = reshape_timebin(
+        sample_df,
+        timestamp_audio=timestamp_wav,
+        timebin_new=Timedelta("1min"),
+    )
     expected = DataFrame(
         {
             "dataset": ["sample_dataset"] * 18,
@@ -486,7 +538,16 @@ def test_no_timebin_original_timebin(sample_df: DataFrame) -> None:
 
 
 def test_simple_reshape_hourly(sample_df: DataFrame) -> None:
-    df_out = reshape_timebin(sample_df, timebin_new=Timedelta(hours=1))
+    tz = get_timezone(sample_df)
+    timestamp_wav = to_datetime(
+        sample_df["filename"],
+        format="%Y_%m_%d_%H_%M_%S"
+    ).dt.tz_localize(tz)
+    df_out = reshape_timebin(
+        sample_df,
+        timestamp_audio=timestamp_wav,
+        timebin_new=Timedelta(hours=1),
+    )
     assert not df_out.empty
     assert all(df_out["end_time"] == 3600.0)
     assert df_out["end_frequency"].max() == sample_df["end_frequency"].max()
@@ -495,31 +556,25 @@ def test_simple_reshape_hourly(sample_df: DataFrame) -> None:
 
 
 def test_reshape_daily_multiple_bins(sample_df: DataFrame) -> None:
-    df_out = reshape_timebin(sample_df, timebin_new=Timedelta(days=1))
+    tz = get_timezone(sample_df)
+    timestamp_wav = to_datetime(
+        sample_df["filename"],
+        format="%Y_%m_%d_%H_%M_%S"
+    ).dt.tz_localize(tz)
+    df_out = reshape_timebin(
+        sample_df,
+        timestamp_audio=timestamp_wav,
+        timebin_new=Timedelta(days=1),
+    )
     assert not df_out.empty
     assert all(df_out["end_time"] == 86400.0)
     assert df_out["start_datetime"].min() >= sample_df["start_datetime"].min().floor("D")
     assert df_out["end_datetime"].max() <= sample_df["end_datetime"].max().ceil("D")
 
 
-def test_with_manual_timestamps_vector(sample_df: DataFrame) -> None:
-    t0 = sample_df["start_datetime"].min().floor("30min")
-    t1 = sample_df["end_datetime"].max().ceil("30min")
-    ts_vec = list(date_range(t0, t1, freq="30min"))
-
-    df_out = reshape_timebin(
-        sample_df,
-        timebin_new=Timedelta(hours=1),
-        timestamp=ts_vec,
-    )
-
-    assert not df_out.empty
-    assert all(isinstance(t, Timestamp) for t in df_out["start_datetime"])
-    assert df_out["end_time"].iloc[0] == 3600.0
-
-
 def test_empty_result_when_no_matching(sample_df: DataFrame) -> None:
     with pytest.raises(ValueError, match="DataFrame is empty"):
+        reshape_timebin(DataFrame())
         reshape_timebin(DataFrame(), Timedelta(hours=1))
 
 

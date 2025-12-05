@@ -164,10 +164,11 @@ def sample_csv_timestamp(tmp_path: Path, sample_status: DataFrame) -> Path:
 
 
 @pytest.fixture
-def sample_yaml(tmp_path: Path,
-                           sample_csv_result: Path,
-                           sample_csv_timestamp: Path,
-                           ) -> Path:
+def sample_yaml(
+        tmp_path: Path,
+        sample_csv_result: Path,
+        sample_csv_timestamp: Path,
+) -> Path:
     yaml_content = {
         f"{sample_csv_result}": {
             "timebin_new": None,
@@ -177,6 +178,7 @@ def sample_yaml(tmp_path: Path,
             "annotation": "lbl1",
             "box": True,
             "timestamp_file": f"{sample_csv_timestamp}",
+            "filename_format": "%Y_%m_%d_%H_%M_%S",
             "user_sel": "all",
             "f_min": None,
             "f_max": None,
