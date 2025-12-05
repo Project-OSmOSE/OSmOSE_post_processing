@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import bisect
 import csv
+import datetime
 from typing import TYPE_CHECKING
 
+import pytz
 from pandas import (
     DataFrame,
     Timedelta,
@@ -18,8 +20,6 @@ from pandas import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    from dateutil.tz import tzoffset
 
     from post_processing.dataclass.detection_filter import DetectionFilter
 
@@ -37,6 +37,23 @@ def find_delimiter(file: Path) -> str:
         return delimiter
 
 
+def filter_strong_detection(
+    df: DataFrame,
+) -> DataFrame:
+    """Filter strong detections of a DataFrame."""
+    if "type" in df.columns:
+        df = df[df["type"] == "WEAK"]
+    elif "is_box" in df.columns:
+        df = df[df["is_box"] == 0]
+    else:
+        msg = "Could not determine annotation type."
+        raise ValueError(msg)
+    if df.empty:
+        msg = "No weak detection found."
+        raise ValueError(msg)
+    return df
+
+
 def filter_by_time(
     df: DataFrame,
     begin: Timestamp | None,
@@ -52,7 +69,7 @@ def filter_by_time(
     if end is not None:
         df = df[df["end_datetime"] <= end]
         if df.empty:
-            msg = f"No detection found after '{end}'."
+            msg = f"No detection found before '{end}'."
             raise ValueError(msg)
 
     return df
@@ -64,9 +81,6 @@ def filter_by_annotator(
 ) -> DataFrame:
     """Filter a DataFrame based on annotator selection."""
     list_annotators = get_annotators(df)
-
-    if not annotator:
-        return df
 
     if isinstance(annotator, str):
         ensure_in_list(annotator, list_annotators, "annotator")
@@ -84,9 +98,6 @@ def filter_by_label(
 ) -> DataFrame:
     """Filter a DataFrame based on label selection."""
     list_labels = get_labels(df)
-
-    if not label:
-        return df
 
     if isinstance(label, str):
         ensure_in_list(label, list_labels, "label")
@@ -176,24 +187,29 @@ def get_dataset(df: DataFrame) -> list[str]:
     return datasets if len(datasets) > 1 else datasets[0]
 
 
-def get_timezone(df: DataFrame) -> tzoffset | list[tzoffset]:
-    """Return timezone(s) from APLOSE DataFrame.
+def get_canonical_tz(tz):
+    """Return timezone of object as a pytz timezone."""
+    if isinstance(tz, datetime.timezone):
+        if tz == datetime.timezone.utc:
+            return pytz.utc
+        offset_minutes = int(tz.utcoffset(None).total_seconds() / 60)
+        return pytz.FixedOffset(offset_minutes)
+    if hasattr(tz, "zone") and tz.zone:
+        return pytz.timezone(tz.zone)
+    if hasattr(tz, "key"):
+        return pytz.timezone(tz.key)
+    else:
+        msg = f"Unknown timezone: {tz}"
+        raise TypeError(msg)
 
-    Parameters
-    ----------
-    df: DataFrame
-        APLOSE result Dataframe
 
-    Returns
-    -------
-    tzoffset: list[tzoffset]
-        list of timezones
+def get_timezone(df: DataFrame):
+    """Return timezone(s) from DataFrame."""
+    timezones = {get_canonical_tz(ts.tzinfo) for ts in df["start_datetime"]}
 
-    """
-    timezones = {ts.tz for ts in df["start_datetime"] if ts.tz is not None}
     if len(timezones) == 1:
         return next(iter(timezones))
-    return sorted(timezones, key=lambda tz: tz.utcoffset(None))
+    return list(timezones)
 
 
 def check_timestamp(df: DataFrame, timestamp_audio: list[Timestamp]) -> None:
@@ -394,6 +410,8 @@ def load_detections(filters: DetectionFilter) -> DataFrame:
 
     """
     df = read_dataframe(filters.detection_file)
+    if filters.box:
+        df = filter_strong_detection(df)
     df = filter_by_time(df, filters.begin, filters.end)
     df = filter_by_annotator(df, annotator=filters.annotator)
     df = filter_by_label(df, label=filters.annotation)

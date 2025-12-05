@@ -173,7 +173,7 @@ def sample_yaml(
             "end": None,
             "annotator": "ann1",
             "annotation": "lbl1",
-            "box": False,
+            "box": True,
             "timestamp_file": f"{sample_csv_timestamp}",
             "filename_format": "%Y_%m_%d_%H_%M_%S",
             "user_sel": "all",

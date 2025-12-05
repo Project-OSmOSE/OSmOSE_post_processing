@@ -18,7 +18,7 @@ def detection_perf(
     timestamps: list[Timestamp] | None = None,
     *,
     ref: tuple[str, str],
-) -> None:
+) -> tuple[float, float, float]:
     """Compute performances metrics for detection.
 
     Performances are computed with a reference annotator in
@@ -127,6 +127,8 @@ def detection_perf(
     logging.info(f"Precision: {precision:.2f}")
     logging.info(f"Recall: {recall:.2f}")
     logging.info(f"F-score: {f_score:.2f}")
+
+    return precision, recall, f_score
 
 
 def _map_datetimes_to_vector(df: DataFrame, timestamps: list[int]) -> ndarray:

@@ -19,8 +19,6 @@ def test_normalize_audio_default_folder(sample_audio: Path, tmp_path: Path) -> N
 
 def test_normalize_audio_custom_folder(sample_audio: Path, tmp_path: Path) -> None:
     out_folder = tmp_path / "output"
-    out_folder.mkdir()
-
     normalize_audio(sample_audio, output_folder=out_folder)
 
     normalized_file = out_folder / sample_audio.name

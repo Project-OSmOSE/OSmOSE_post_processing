@@ -1,4 +1,7 @@
+from unittest.mock import patch
+
 import pytest
+from matplotlib import pyplot as plt
 from pandas import DataFrame, Timedelta, Timestamp, date_range
 from pandas.tseries import frequencies
 from pytz import timezone
@@ -15,6 +18,10 @@ from post_processing.utils.core_utils import (
     localize_timestamps,
     round_begin_end_timestamps,
     timedelta_to_str,
+    add_season_period,
+    add_recording_period,
+    set_bar_height,
+    json2df,
 )
 
 
@@ -38,7 +45,7 @@ def test_coordinates_cancelled_input(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_coordinates_invalid_then_valid_input(monkeypatch: pytest.MonkeyPatch) -> None:
-    inputs = [["900", "50"], ["45", "100"]]  # first invalid, then valid
+    inputs = [["900", "50"], ["45", "900"], ["45", "100"]]
 
     def fake_box(msg: str, title: str, fields: list[str]) -> list[str]:
         return inputs.pop(0)
@@ -49,7 +56,7 @@ def test_coordinates_invalid_then_valid_input(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_coordinates_non_numeric_input(monkeypatch: pytest.MonkeyPatch) -> None:
-    inputs = [["abc", "-20"], ["10", "-20"]]
+    inputs = [["abc", "-20"], ["-20", "abc"], ["10", "-20"]]
 
     def fake_box(msg: str, title: str, fields: list[str]) -> list[str]:
         return inputs.pop(0)
@@ -127,11 +134,12 @@ def test_get_sun_times_valid_input(start: Timestamp,
          -1.5167),
     ],
 )
-def test_get_sun_times_naive_timestamps(start: Timestamp,
-                                        stop: Timestamp,
-                                        lat: float,
-                                        lon: float,
-                                        ) -> None:
+def test_get_sun_times_naive_timestamps(
+    start: Timestamp,
+    stop: Timestamp,
+    lat: float,
+    lon: float,
+) -> None:
     with pytest.raises(ValueError, match="start and stop must be timezone-aware"):
         get_sun_times(start, stop, lat, lon)
 
@@ -369,14 +377,106 @@ def test_round_begin_end_timestamps_valid_entry_2() -> None:
 def test_timedelta_to_str(td, expected) -> None:
     assert timedelta_to_str(td) == expected
 
+
 # %% add_weak_detection / json2df
 
 
 def test_add_wd(sample_df: DataFrame) -> None:
     df_only_wd = sample_df[sample_df["is_box"] == 1]
-    strong_det = sample_df[sample_df["is_box"] == 0].iloc[0]
-    add_weak_detection(df=df_only_wd.copy(),
-                       datetime_format="%Y_%m_%d_%H_%M_%S",
-                       max_time=strong_det["end_time"],
-                       max_freq=strong_det["end_frequency"],
-                       )
+    add_weak_detection(
+        df=df_only_wd.copy(),
+        datetime_format="%Y_%m_%d_%H_%M_%S",
+    )
+
+
+# %% add_season_period
+
+def test_add_season_valid() -> None:
+    fig, ax = plt.subplots()
+    start = Timestamp("2025-01-01T00:00:00+00:00")
+    stop = Timestamp("2025-01-02T00:00:00+00:00")
+
+    ts = date_range(start=start, end=stop, freq="H", tz="UTC")
+    values = list(range(len(ts)))
+    ax.plot(ts, values)
+    add_season_period(ax=ax)
+
+
+def test_add_season_no_data() -> None:
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match=r"have no data"):
+        add_season_period(ax=ax)
+
+# %% add_recording_period
+
+def test_add_recording_period_valid() -> None:
+    fig, ax = plt.subplots()
+    start = Timestamp("2025-01-01T00:00:00+00:00")
+    stop  = Timestamp("2025-01-02T00:00:00+00:00")
+
+    ts = date_range(start=start, end=stop, freq="H", tz="UTC")
+    values = list(range(len(ts)))
+    ax.plot(ts, values)
+
+    df = DataFrame(
+        data=[
+            [
+                Timestamp("2025-01-01T00:00:00+00:00"),
+                Timestamp("2025-01-02T00:00:00+00:00"),
+            ]
+        ],
+        columns=["deployment_date", "recovery_date"],
+    )
+    add_recording_period(df=df, ax=ax)
+
+
+def test_add_recording_period_no_data() -> None:
+    fig, ax = plt.subplots()
+    df = DataFrame()
+    with pytest.raises(ValueError, match=r"have no data"):
+        add_recording_period(df=df, ax=ax)
+
+# %% set_bar_height
+
+def test_set_bar_height_valid() -> None:
+    fig, ax = plt.subplots()
+    start = Timestamp("2025-01-01T00:00:00+00:00")
+    stop = Timestamp("2025-01-02T00:00:00+00:00")
+
+    ts = date_range(start=start, end=stop, freq="H", tz="UTC")
+    values = list(range(len(ts)))
+    ax.plot(ts, values)
+
+    set_bar_height(ax=ax)
+
+
+def test_set_bar_height_no_data() -> None:
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match=r"have no data"):
+        set_bar_height(ax=ax)
+
+# %% json2df
+
+def test_json2df_valid(tmp_path):
+    fake_json = {
+        "deployment_date": "2025-01-01T00:00:00+00:00",
+        "recovery_date": "2025-01-02T00:00:00+00:00",
+    }
+
+    json_file = tmp_path / "metadatax.json"
+    json_file.write_text("{}", encoding="utf-8")
+
+    with patch("json.load", return_value=fake_json):
+        df = json2df(json_file)
+
+    expected = DataFrame(
+        data=[
+            [
+                Timestamp("2025-01-01T00:00:00+00:00"),
+                Timestamp("2025-01-02T00:00:00+00:00"),
+            ]
+        ],
+        columns=["deployment_date", "recovery_date"],
+    )
+
+    assert df.equals(expected)

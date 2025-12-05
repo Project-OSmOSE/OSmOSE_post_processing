@@ -54,8 +54,10 @@ def test_get_position_from_timestamp(nav_df: DataFrame) -> None:
     assert all(isinstance(x, float) for x in lat)
 
 
-def test_plot_detections_with_nav_data(df_detections: DataFrame,
-                                       nav_df: DataFrame) -> None:
+def test_plot_detections_with_nav_data(
+        df_detections: DataFrame,
+        nav_df: DataFrame
+) -> None:
     plot_detections_with_nav_data(
         df=df_detections,
         nav=nav_df,

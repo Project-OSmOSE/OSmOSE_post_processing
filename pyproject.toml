@@ -39,9 +39,6 @@ dev = [
     "coverage>=7.11.0",
 ]
 
-[tool.ruff]
-exclude = ["scripts/**/*.py"]
-
 [tool.ruff.lint.flake8-copyright]
 author = "OSmOSE"
 

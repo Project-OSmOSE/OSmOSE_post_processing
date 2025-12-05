@@ -1,15 +1,17 @@
-from __future__ import annotations
-
 import csv
 from datetime import timezone, UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 import yaml
 
 import pytest
+import pytz
+from pandas import DataFrame, Timedelta, Timestamp, date_range, concat, to_datetime
 from pandas import DataFrame, Timedelta, Timestamp, to_datetime, testing, Series
 
 from post_processing.utils.filtering_utils import (
     filter_by_annotator,
+    filter_strong_detection,
     filter_by_freq,
     filter_by_label,
     filter_by_score,
@@ -22,6 +24,10 @@ from post_processing.utils.filtering_utils import (
     get_max_time,
     get_timezone,
     read_dataframe,
+    reshape_timebin,
+    get_canonical_tz,
+    ensure_no_invalid,
+    intersection_or_union,
     reshape_timebin, get_filename_timestamps, check_timestamp,
 )
 
@@ -62,21 +68,56 @@ def test_find_delimiter_empty_file(tmp_path: Path) -> None:
 # %% filter utils
 
 # filter_by_time
-def test_filter_by_time_begin(sample_df: DataFrame) -> None:
-    ts = sample_df["start_datetime"].iloc[4]
-    df = filter_by_time(sample_df, begin=ts, end=None)
-    assert (df["start_datetime"] >= ts).all()
+@pytest.mark.parametrize(
+    "begin, end",
+    [
+        pytest.param(
+            Timestamp("2020-01-01", tz="utc"),
+            None,
+            id="valid_begin_only",
+        ),
+        pytest.param(
+            None,
+            Timestamp("2030-01-01", tz="utc"),
+            id="valid_end_only",
+        ),
+        pytest.param(
+            Timestamp("2020-01-01", tz="utc"),
+            Timestamp("2030-01-01", tz="utc"),
+            id="valid_begin_and_end",
+        ),
+    ],
+)
+def test_filter_by_time_valid(sample_df: DataFrame, begin, end):
+    result = filter_by_time(sample_df, begin=begin, end=end)
+
+    assert not result.empty
+    if begin is not None:
+        assert (result["start_datetime"] >= begin).all()
+    if end is not None:
+        assert (result["end_datetime"] <= end).all()
 
 
-def test_filter_by_time_end(sample_df: DataFrame) -> None:
-    ts = sample_df["end_datetime"].iloc[4]
-    df = filter_by_time(sample_df, begin=None, end=ts)
-    assert (df["end_datetime"] <= ts).all()
-
-
-def test_filter_by_time_out_of_range(sample_df: DataFrame) -> None:
-    with pytest.raises(ValueError, match="No detection found after '2050"):
-        filter_by_time(sample_df, begin=Timestamp("2050-01-01", tz="utc"), end=None)
+@pytest.mark.parametrize(
+    "begin, end, expected_msg",
+    [
+        pytest.param(
+            Timestamp("2050-01-01", tz="utc"),
+            None,
+            "No detection found after '2050",
+            id="out_of_range_begin",
+        ),
+        pytest.param(
+            None,
+            Timestamp("1900-01-01", tz="utc"),
+            "No detection found before '1900",
+            id="out_of_range_end",
+        ),
+    ],
+)
+def test_filter_by_time_out_of_range(sample_df: DataFrame, begin, end, expected_msg):
+    with pytest.raises(ValueError, match=expected_msg):
+        filter_by_time(sample_df, begin=begin, end=end)
 
 
 # filter_by_annotator
@@ -111,23 +152,58 @@ def test_filter_by_label_invalid(sample_df: DataFrame) -> None:
         filter_by_label(sample_df, "hihi")
 
 
-# filter_by_freq
-def test_filter_by_freq_min(sample_df: DataFrame) -> None:
-    freq_min = 500
-    df = filter_by_freq(sample_df, f_min=freq_min, f_max=None)
-    assert (df["start_frequency"] >= freq_min).all()
+@pytest.mark.parametrize(
+    "f_min, f_max",
+    [
+        pytest.param(
+            500,     # valid lower bound
+            None,
+            id="valid_f_min_only",
+        ),
+        pytest.param(
+            None,
+            60000,   # valid upper bound
+            id="valid_f_max_only",
+        ),
+        pytest.param(
+            500,
+            60000,
+            id="valid_f_min_and_f_max",
+        ),
+    ],
+)
+def test_filter_by_freq_valid(sample_df: DataFrame, f_min, f_max):
+    result = filter_by_freq(sample_df, f_min=f_min, f_max=f_max)
+
+    assert not result.empty
+
+    if f_min is not None:
+        assert (result["start_frequency"] >= f_min).all()
+    if f_max is not None:
+        assert (result["end_frequency"] <= f_max).all()
+
+@pytest.mark.parametrize(
+    "f_min, f_max, expected_msg",
+    [
+        pytest.param(
+            1e8,
+            None,
+            "No detection found above",
+            id="out_of_range_f_min",
+        ),
+        pytest.param(
+            None,
+            1,
+            "No detection found below",
+            id="out_of_range_f_max",
+        ),
+    ],
+)
 
 
-def test_filter_by_freq_max(sample_df: DataFrame) -> None:
-    freq_max = 60000
-    df = filter_by_freq(sample_df, f_min=None, f_max=freq_max)
-    assert (df["end_frequency"] <= freq_max).all()
-
-
-def test_filter_by_freq_no_results(sample_df: DataFrame) -> None:
-    freq_min = 144000
-    with pytest.raises(ValueError, match=f"No detection found above {int(freq_min)}Hz"):
-        filter_by_freq(sample_df, f_min=freq_min, f_max=None)
+def test_filter_by_freq_out_of_range(sample_df: DataFrame, f_min, f_max, expected_msg):
+    with pytest.raises(ValueError, match=expected_msg):
+        filter_by_freq(sample_df, f_min=f_min, f_max=f_max)
 
 
 # filter_by_score
@@ -145,6 +221,30 @@ def test_filter_by_score_missing_column(sample_df: DataFrame) -> None:
     df = sample_df.drop(columns=["score"])
     with pytest.raises(ValueError, match="'score' column not present"):
         filter_by_score(df, 0.5)
+
+
+# filter_weak_strong_detection
+def test_filter_weak_only_is_box_colum(sample_df: DataFrame) -> None:
+    df = filter_strong_detection(sample_df)
+    assert set(df["is_box"]) == {0}
+
+
+def test_filter_weak_only_type_column(sample_df: DataFrame) -> None:
+    sample_df = sample_df.rename(columns={"is_box": "type"})
+    sample_df["type"] = ["WEAK" if not cell else "BOX" for cell in sample_df["type"]]
+    df = filter_strong_detection(sample_df)
+    assert set(df["type"]) == {"WEAK"}
+
+
+def test_filter_weak_only_invalid() -> None:
+    invalid_df = DataFrame({"A": [1, 2, 3], "B": [4, 5, 6]})
+    with pytest.raises(ValueError, match="Could not determine annotation type"):
+        filter_strong_detection(invalid_df)
+
+
+def test_filter_weak_empty(sample_df: DataFrame) -> None:
+    with pytest.raises(ValueError, match="No weak detection found"):
+        filter_strong_detection(sample_df[sample_df["is_box"] == 1])
 
 
 def test_get_annotators(sample_df: DataFrame) -> None:
@@ -171,11 +271,60 @@ def test_get_dataset(sample_df: DataFrame) -> None:
     assert get_dataset(sample_df) == sample_df["dataset"].iloc[0]
 
 
+@pytest.mark.parametrize(
+    "input_tz, expected",
+    [
+        (pytz.timezone("Europe/Samara"), pytz.timezone("Europe/Samara")),
+        (ZoneInfo("Pacific/Pago_Pago"), pytz.timezone("Pacific/Pago_Pago")),
+    ],
+)
+def test_get_canonical_tz_valid(input_tz, expected):
+    result = get_canonical_tz(input_tz)
+    assert result == expected
+
+
+def test_get_canonical_tz_raises_on_unknown():
+    class DummyTZ:
+        pass
+
+    dummy = DummyTZ()
+    with pytest.raises(TypeError) as exc:
+        get_canonical_tz(dummy)
+
+    assert "Unknown timezone" in str(exc.value)
+
+
 def test_get_timezone_single(sample_df: DataFrame) -> None:
     tz = get_timezone(sample_df)
     assert isinstance(tz, timezone)
     assert tz == UTC
 
+    assert tz == pytz.utc
+
+
+def test_get_timezone_several(sample_df: DataFrame) -> None:
+    new_row = {
+        "dataset": "dataset",
+        "filename": "filename",
+        "start_time": 0,
+        "end_time": 2,
+        "start_frequency": 100,
+        "end_frequency": 200,
+        "annotation": "annotation",
+        "annotator": "annotator",
+        "start_datetime": Timestamp("2025-01-27 06:00:00.000000+07:00"),
+        "end_datetime": Timestamp("2025-01-27 06:00:00.000000+07:00"),
+        "is_box": 1,
+        "score": None,
+    }
+    sample_df = concat(
+        [sample_df, DataFrame([new_row])],
+        ignore_index=False
+    )
+    tz = get_timezone(sample_df)
+    assert len(tz) == 2
+    assert pytz.UTC in tz
+    assert pytz.FixedOffset(420) in tz
 
 def test_get_filename_timestamp(sample_df: DataFrame, sample_yaml: Path) -> None:
     tz = get_timezone(sample_df)
@@ -214,7 +363,6 @@ def test_check_timestamp_wrong_length(sample_df: DataFrame) -> None:
     with pytest.raises(ValueError, match="`timestamp_wav` is not the same length as `df`"):
         check_timestamp(sample_df, timestamps)
 # %% read DataFrame
-
 
 def test_read_dataframe_comma_delimiter(tmp_path: Path) -> None:
     csv_file = tmp_path / "test.csv"
@@ -268,10 +416,34 @@ def test_read_dataframe_nrows(tmp_path: Path) -> None:
     assert len(df) == 1
     assert df.iloc[0]["annotation"] in {"whale", "dolphin"}
 
+
 # %% reshape_timebin
 
-
 def test_no_timebin_returns_original(sample_df: DataFrame) -> None:
+    df_out = reshape_timebin(sample_df, timebin_new=None)
+    assert df_out.equals(sample_df)
+
+
+def test_no_timebin_several_tz(sample_df: DataFrame) -> None:
+    new_row = {
+        "dataset": "dataset",
+        "filename": "filename",
+        "start_time": 0,
+        "end_time": 2,
+        "start_frequency": 100,
+        "end_frequency": 200,
+        "annotation": "annotation",
+        "annotator": "annotator",
+        "start_datetime": Timestamp("2025-01-27 06:00:00.000000+07:00"),
+        "end_datetime": Timestamp("2025-01-27 06:00:00.000000+07:00"),
+        "is_box": 1,
+        "score": None,
+    }
+    sample_df = concat(
+        [sample_df, DataFrame([new_row])],
+        ignore_index=False
+    )
+
     df_out = reshape_timebin(sample_df, timebin_new=None)
     assert df_out.equals(sample_df)
 
@@ -405,3 +577,67 @@ def test_reshape_daily_multiple_bins(sample_df: DataFrame) -> None:
 def test_empty_result_when_no_matching(sample_df: DataFrame) -> None:
     with pytest.raises(ValueError, match="DataFrame is empty"):
         reshape_timebin(DataFrame())
+        reshape_timebin(DataFrame(), Timedelta(hours=1))
+
+
+# %% ensure_no_invalid
+
+def test_ensure_no_invalid_empty() -> None:
+    try:
+        ensure_no_invalid([], "label")
+    except ValueError:
+        pytest.fail("ensure_no_invalid raised ValueError unexpectedly.")
+
+
+def test_ensure_no_invalid_with_elements() -> None:
+    invalid_items = ["foo", "bar"]
+    with pytest.raises(ValueError) as exc_info:
+        ensure_no_invalid(invalid_items, "columns")
+
+    assert "foo" in str(exc_info.value)
+    assert "bar" in str(exc_info.value)
+    assert "columns" in str(exc_info.value)
+
+def test_ensure_no_invalid_single_element() -> None:
+    invalid_items = ["baz"]
+    with pytest.raises(ValueError) as exc_info:
+        ensure_no_invalid(invalid_items, "features")
+    assert "baz" in str(exc_info.value)
+    assert "features" in str(exc_info.value)
+
+# %% intersection / union
+
+def test_intersection(sample_df) -> None:
+    df_result = intersection_or_union(sample_df[sample_df["annotator"].isin(["ann1", "ann2"])], user_sel="intersection")
+
+    assert set(df_result["annotation"]) == {"lbl1", "lbl2"}
+    assert set(df_result["annotator"]) == {"ann1 ∩ ann2"}
+
+
+def test_union(sample_df) -> None:
+    df_result = intersection_or_union(sample_df[sample_df["annotator"].isin(["ann1", "ann2"])], user_sel="union")
+
+    assert set(df_result["annotation"]) == {"lbl1", "lbl2"}
+    assert set(df_result["annotator"]) == {"ann1 ∪ ann2"}
+
+
+def test_all_user_sel_returns_original(sample_df) -> None:
+    df_result = intersection_or_union(sample_df, user_sel="all")
+
+    assert len(df_result) == len(sample_df)
+
+
+def test_invalid_user_sel_raises(sample_df) -> None:
+    with pytest.raises(ValueError, match="'user_sel' must be either 'intersection' or 'union'"):
+        intersection_or_union(sample_df, user_sel="invalid")
+
+
+def test_not_enough_annotators_raises() -> None:
+    df_single_annotator = DataFrame({
+        "annotation": ["cat"],
+        "start_datetime": to_datetime(["2025-01-01 10:00"]),
+        "end_datetime": to_datetime(["2025-01-01 10:01"]),
+        "annotator": ["A"]
+    })
+    with pytest.raises(ValueError, match="Not enough annotators detected"):
+        intersection_or_union(df_single_annotator, user_sel="intersection")
