@@ -197,18 +197,17 @@ def get_timezone(df: DataFrame) -> tzoffset | list[tzoffset]:
 
 
 def check_timestamp(df: DataFrame, timestamp_audio: list[Timestamp]) -> None:
-    """Check if the variable timestamp_wav exists and is correctly formated.
+    """Check if provided `timestamp_audio` list is correctly formated.
 
     Parameters
     ----------
     df: DataFrame
-        APLOSE results Dataframe
+        APLOSE results Dataframe.
     timestamp_audio: list[Timestamp]
-        A list of timestamps. Each timestamp is the start datetime of the
-        corresponding audio file for each detection in df.
+        list of start timestamps of corresponding audio file for each detection.
 
     """
-    if timestamp_audio is None:
+    if timestamp_audio in [None, []]:
         msg = "`timestamp_wav` is empty"
         raise ValueError(msg)
     if len(timestamp_audio) != len(df):

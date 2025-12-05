@@ -197,9 +197,10 @@ def test_get_filename_timestamp(sample_df: DataFrame, sample_yaml: Path) -> None
                                 check_names=False)
 
 
-def test_check_timestamp_none(sample_df: DataFrame) -> None:
+@pytest.mark.parametrize("timestamp", [None, []])
+def test_check_timestamp_empty(sample_df: DataFrame, timestamp: list | None) -> None:
     with pytest.raises(ValueError, match="`timestamp_wav` is empty"):
-        check_timestamp(sample_df, None)
+        check_timestamp(sample_df, timestamp)
 
 
 def test_check_timestamp_wrong_length(sample_df: DataFrame) -> None:
