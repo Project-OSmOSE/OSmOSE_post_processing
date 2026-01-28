@@ -486,6 +486,7 @@ def _process_annotator_label_pair(
     ]
     file_vector = [
         filename_vector[i] for i, detected in enumerate(detect_vec) if detected
+        # filename_vector[i + 1] for i, detected in enumerate(detect_vec) if detected
     ]
 
     if not start_datetime:
@@ -510,8 +511,8 @@ def reshape_timebin(
     timebin_new: Timedelta
         The size of the new time bin.
     timestamp_audio: list[Timestamp]
-        A list of Timestamp objects corresponding to the start of each wav
-         that corresponds to a detection
+        A list of Timestamp objects corresponding to the shape
+        in which the data should be reshaped.
 
     Returns
     -------
@@ -572,10 +573,10 @@ def get_filename_timestamps(df: DataFrame, date_parser: str) -> list[Timestamp]:
     """
     tz = get_timezone(df)
     timestamps = [
-    strptime_from_text(
-        ts,
-        datetime_template=date_parser,
-    ) for ts in df["filename"]
+        strptime_from_text(
+            ts,
+            datetime_template=date_parser,
+        ) for ts in df["filename"]
     ]
 
     if all(t.tz is None for t in timestamps):

@@ -239,6 +239,7 @@ def scatter(
     season = kwargs.get("season", False)
     coordinates = kwargs.get("coordinates", False)
     effort = kwargs.get("effort", False)
+    legend = kwargs.get("legend", False)
 
     _prepare_timeline_plot(
         df=df,
@@ -282,6 +283,7 @@ def scatter(
         shade_no_effort(
             ax=ax,
             observed=effort,
+            legend=legend,
         )
 
 
@@ -577,7 +579,7 @@ def timeline(
 
     ax.grid(color="k", linestyle="-", linewidth=0.2)
     ax.set_yticks(np.arange(0, len(labels), 1))
-    ax.set_yticklabels(labels[::-1])
+    ax.set_yticklabels(labels)
     ax.set_xlabel("Date")
     ax.set_xlim(
         df["start_datetime"].min().floor("1d"),

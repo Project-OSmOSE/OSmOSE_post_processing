@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Any
 import astral
 import easygui
 import numpy as np
-from astral.sun import sunrise, sunset
+from astral import LocationInfo
+from astral.sun import sunrise, sunset, sun
 from matplotlib import pyplot as plt
 from osekit.config import TIMESTAMP_FORMAT_AUDIO_FILE
 from osekit.utils.timestamp_utils import strftime_osmose_format, strptime_from_text
@@ -579,3 +580,44 @@ def timedelta_to_str(td: Timedelta) -> str:
     if seconds % 60 == 0:
         return f"{seconds // 60}min"
     return f"{seconds}s"
+
+
+def assign_light_regime(
+    ts: Timestamp,
+    lat: float | None = None,
+    lon: float | None = None,
+) -> DataFrame:
+    """Assign daylight regime to temporal events.
+
+    Parameters
+    ----------
+    ts: Timestamp
+        Timestamp to assign a light regime to.
+    lat: float
+        The latitude of corresponding point.
+    lon: float
+        The longitude of corresponding point.
+
+    Returns
+    -------
+    DataFrame
+        The same dataframe with the column daytime.
+
+    """
+    if not all([lat, lon]):
+        lat, lon = get_coordinates()
+
+    # Get sun times for given location
+    location = LocationInfo(latitude=lat, longitude=lon)
+    s = sun(location.observer, date=ts.date())
+
+    if ts < s['dawn']:
+        return 'night'
+    elif ts < s['sunrise']:
+        return 'dawn'
+    elif ts < s['sunset']:
+        return 'day'
+    elif ts < s['dusk']:
+        return 'dusk'
+    else:
+        return 'night'

@@ -1,0 +1,19 @@
+site_colors:
+  CA4: '#80D8C3'
+  Point C: '#932F67'
+  Point D: '#D92C54'
+  Point E: '#DDDEAB'
+  Point F: '#4E61D3'
+  Point G: '#456882'
+  Site A Haute: '#118B50'
+  Site B Heugh: '#5DB996'
+  Site C Chat: '#B0DB9C'
+  Site D Simone: '#E3F0AF'
+  Walde: '#4DA8DA'
+  02Mn Sud Cotentin: '#FB4141'
+
+season_color :
+  spring: "green"
+  summer: "orange"
+  autumn: "brown"
+  winter: "blue"
