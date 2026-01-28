@@ -77,7 +77,7 @@ def test_find_delimiter_unsupported_delimiter(tmp_path: Path) -> None:
 
     with pytest.raises(
         ValueError,
-        match=r"unsupported delimiter '&'"
+        match=r"unsupported delimiter '&'",
     ):
         find_delimiter(file)
 
@@ -199,6 +199,7 @@ def test_filter_by_freq_valid(sample_df: DataFrame, f_min, f_max):
     if f_max is not None:
         assert (result["end_frequency"] <= f_max).all()
 
+
 @pytest.mark.parametrize(
     "f_min, f_max, expected_msg",
     [
@@ -216,8 +217,6 @@ def test_filter_by_freq_valid(sample_df: DataFrame, f_min, f_max):
         ),
     ],
 )
-
-
 def test_filter_by_freq_out_of_range(sample_df: DataFrame, f_min, f_max, expected_msg):
     with pytest.raises(ValueError, match=expected_msg):
         filter_by_freq(sample_df, f_min=f_min, f_max=f_max)
@@ -331,7 +330,7 @@ def test_get_timezone_several(sample_df: DataFrame) -> None:
     }
     sample_df = concat(
         [sample_df, DataFrame([new_row])],
-        ignore_index=False
+        ignore_index=False,
     )
     tz = get_timezone(sample_df)
     assert len(tz) == 2
@@ -339,6 +338,7 @@ def test_get_timezone_several(sample_df: DataFrame) -> None:
     assert pytz.FixedOffset(420) in tz
 
 # %% read DataFrame
+
 
 def test_read_dataframe_comma_delimiter(tmp_path: Path) -> None:
     csv_file = tmp_path / "test.csv"
@@ -417,7 +417,7 @@ def test_no_timebin_several_tz(sample_df: DataFrame) -> None:
     }
     sample_df = concat(
         [sample_df, DataFrame([new_row])],
-        ignore_index=False
+        ignore_index=False,
     )
     timestamp_wav = to_datetime(sample_df["filename"],
                                 format="%Y_%m_%d_%H_%M_%S").dt.tz_localize(pytz.UTC)
@@ -429,7 +429,7 @@ def test_no_timebin_original_timebin(sample_df: DataFrame) -> None:
     tz = get_timezone(sample_df)
     timestamp_wav = to_datetime(
         sample_df["filename"],
-        format="%Y_%m_%d_%H_%M_%S"
+        format="%Y_%m_%d_%H_%M_%S",
     ).dt.tz_localize(tz)
     df_out = reshape_timebin(
         sample_df,
@@ -520,7 +520,7 @@ def test_simple_reshape_hourly(sample_df: DataFrame) -> None:
     tz = get_timezone(sample_df)
     timestamp_wav = to_datetime(
         sample_df["filename"],
-        format="%Y_%m_%d_%H_%M_%S"
+        format="%Y_%m_%d_%H_%M_%S",
     ).dt.tz_localize(tz)
     df_out = reshape_timebin(
         sample_df,
@@ -538,7 +538,7 @@ def test_reshape_daily_multiple_bins(sample_df: DataFrame) -> None:
     tz = get_timezone(sample_df)
     timestamp_wav = to_datetime(
         sample_df["filename"],
-        format="%Y_%m_%d_%H_%M_%S"
+        format="%Y_%m_%d_%H_%M_%S",
     ).dt.tz_localize(tz)
     df_out = reshape_timebin(sample_df, timestamp_audio=timestamp_wav, timebin_new=Timedelta(days=1))
     assert not df_out.empty
@@ -555,7 +555,7 @@ def test_with_manual_timestamps_vector(sample_df: DataFrame) -> None:
     df_out = reshape_timebin(
         sample_df,
         timestamp_audio=timestamp_wav,
-        timebin_new=Timedelta(hours=1)
+        timebin_new=Timedelta(hours=1),
     )
 
     assert not df_out.empty
@@ -589,6 +589,7 @@ def test_ensure_no_invalid_with_elements() -> None:
     assert "bar" in str(exc_info.value)
     assert "columns" in str(exc_info.value)
 
+
 def test_ensure_no_invalid_single_element() -> None:
     invalid_items = ["baz"]
     with pytest.raises(ValueError) as exc_info:
@@ -597,6 +598,7 @@ def test_ensure_no_invalid_single_element() -> None:
     assert "features" in str(exc_info.value)
 
 # %% intersection / union
+
 
 def test_intersection(sample_df) -> None:
     df_result = intersection_or_union(sample_df[sample_df["annotator"].isin(["ann1", "ann2"])], user_sel="intersection")
@@ -628,7 +630,7 @@ def test_not_enough_annotators_raises() -> None:
         "annotation": ["cat"],
         "start_datetime": to_datetime(["2025-01-01 10:00"]),
         "end_datetime": to_datetime(["2025-01-01 10:01"]),
-        "annotator": ["A"]
+        "annotator": ["A"],
     })
     with pytest.raises(ValueError, match="Not enough annotators detected"):
         intersection_or_union(df_single_annotator, user_sel="intersection")

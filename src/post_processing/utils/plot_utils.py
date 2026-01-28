@@ -11,9 +11,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import dates as mdates
 from matplotlib.dates import num2date
-from matplotlib.ticker import PercentFormatter
+from matplotlib.patches import Patch
 from numpy import ceil, histogram, polyfit
-from pandas import DataFrame, DatetimeIndex, Index, Timedelta, Timestamp, date_range
+from pandas import (
+    DataFrame,
+    DatetimeIndex,
+    Series,
+    Timedelta,
+    Timestamp,
+    concat,
+    date_range,
+)
 from pandas.tseries import frequencies
 from scipy.stats import pearsonr
 from seaborn import scatterplot
@@ -28,11 +36,10 @@ from post_processing.utils.core_utils import (
     timedelta_to_str,
 )
 from post_processing.utils.filtering_utils import (
+    filter_by_annotator,
     get_max_time,
     get_timezone,
-    filter_by_annotator,
 )
-from post_processing.utils.metrics_utils import normalize_counts_by_effort
 
 if TYPE_CHECKING:
     from datetime import tzinfo
@@ -68,15 +75,15 @@ def histo(
         - legend: bool
             Whether to show the legend.
         - color: str | list[str]
-            Color or list of colors for the histogram bars.
-            If not provided, default colors will be used.
+            Colour or list of colours for the histogram bars.
+            If not provided, default colours will be used.
         - season: bool
             Whether to show the season.
         - coordinates: tuple[float, float]
             The coordinates of the plotted detections.
         - effort: RecordingPeriod
             Object corresponding to the observation effort.
-            If provided, data will be normalized by observation effort.
+            If provided, data will be normalised by observation effort.
 
     """
     labels, annotators = zip(*[col.rsplit("-", 1) for col in df.columns], strict=False)
@@ -107,9 +114,6 @@ def histo(
     else:
         legend_labels = None
 
-    if effort:
-        normalize_counts_by_effort(df, effort, time_bin)
-
     n_groups = len(labels) if legend_labels else 1
     bar_width = bin_size / n_groups
     bin_starts = mdates.date2num(df.index)
@@ -130,30 +134,28 @@ def histo(
         ax.bar(bin_starts + offset, df.iloc[:, i], **bar_kwargs)
 
     if len(df.columns) > 1 and legend:
-        ax.legend(labels=legend_labels, bbox_to_anchor=(1.01, 1), loc="upper left")
+        ax.legend(
+            labels=legend_labels,
+            bbox_to_anchor=(1.01, 1),
+            loc="upper left",
+        )
 
-    y_label = (
-        f"Detections{(' normalized by effort' if effort else '')}"
-        f"\n(detections: {timedelta_to_str(time_bin)}"
-        f" - bin size: {bin_size_str})"
-    )
-    ax.set_ylabel(y_label)
-    set_y_axis_to_percentage(ax) if effort else set_dynamic_ylim(ax, df)
+    ax.set_ylabel(f"Detections ({timedelta_to_str(time_bin)})")
+    ax.set_xlabel(f"Bin size ({bin_size_str})")
     set_plot_title(ax, annotators, labels)
     ax.set_xlim(begin, end)
+
+    if effort:
+        shade_no_effort(
+            ax=ax,
+            observed=effort,
+            legend=legend,
+        )
 
     if season:
         if lat is None or lon is None:
             get_coordinates()
         add_season_period(ax, northern=lat >= 0)
-
-    if effort:
-        shade_no_effort(
-            ax=ax,
-            bin_starts=df.index,
-            observed=effort,
-            bar_width=bin_size,
-        )
 
 
 def _prepare_timeline_plot(
@@ -196,7 +198,6 @@ def _prepare_timeline_plot(
     ax.set_ylim(0, 24)
     ax.set_yticks(range(0, 25, 2))
     ax.set_ylabel("Hour")
-    ax.set_xlabel("Date")
     ax.grid(color="k", linestyle="-", linewidth=0.2)
 
     set_plot_title(ax=ax, annotators=annotators, labels=labels)
@@ -213,7 +214,7 @@ def scatter(
     df: DataFrame,
     ax: Axes,
     time_range: DatetimeIndex,
-    **kwargs: bool | tuple[float, float],
+    **kwargs: bool | tuple[float, float] | RecordingPeriod,
 ) -> None:
     """Scatter-plot of detections for a given annotator and label.
 
@@ -237,6 +238,8 @@ def scatter(
     show_rise_set = kwargs.get("show_rise_set", False)
     season = kwargs.get("season", False)
     coordinates = kwargs.get("coordinates", False)
+    effort = kwargs.get("effort", False)
+    legend = kwargs.get("legend", False)
 
     _prepare_timeline_plot(
         df=df,
@@ -275,6 +278,13 @@ def scatter(
         frameon=True,
         framealpha=0.6,
     )
+
+    if effort:
+        shade_no_effort(
+            ax=ax,
+            observed=effort,
+            legend=legend,
+        )
 
 
 def heatmap(df: DataFrame,
@@ -359,7 +369,7 @@ def heatmap(df: DataFrame,
     )
 
     if coordinates and season:
-        lat, lon = coordinates
+        lat, _ = coordinates
         add_season_period(ax, northern=lat >= 0)
 
     bin_size_str = get_bin_size_str(bin_size)
@@ -466,7 +476,7 @@ def agreement(
     bin_size: Timedelta | BaseOffset,
     ax: plt.Axes,
 ) -> None:
-    """Compute and visualize agreement between two annotators.
+    """Compute and visualise agreement between two annotators.
 
     This function compares annotation timestamps from two annotators over a time range.
     It also fits and plots a linear regression line and displays the coefficient
@@ -487,41 +497,33 @@ def agreement(
     """
     labels, annotators = get_labels_and_annotators(df)
 
-    datetimes1 = list(
-        df[(df["annotator"] == annotators[0]) & (df["annotation"] == labels[0])][
-            "start_datetime"
-        ],
-    )
-    datetimes2 = list(
-        df[(df["annotator"] == annotators[1]) & (df["annotation"] == labels[1])][
-            "start_datetime"
-        ],
-    )
+    datetimes = [
+        list(
+            df[
+                (df["annotator"] == annotators[i]) & (df["annotation"] == labels[i])
+                ]["start_datetime"],
+        )
+        for i in range(2)
+    ]
 
     # scatter plot
     n_annot_max = bin_size.total_seconds() / df["end_time"].iloc[0]
-
-    start = df["start_datetime"].min()
-    stop = df["start_datetime"].max()
 
     freq = (
         bin_size if isinstance(bin_size, Timedelta) else str(bin_size.n) + bin_size.name
     )
 
     bins = date_range(
-        start=start.floor(bin_size),
-        end=stop.ceil(bin_size),
+        start=df["start_datetime"].min().floor(bin_size),
+        end=df["start_datetime"].max().ceil(bin_size),
         freq=freq,
     )
-
-    hist1, _ = histogram(datetimes1, bins=bins)
-    hist2, _ = histogram(datetimes2, bins=bins)
 
     df_hist = (
         DataFrame(
             {
-                annotators[0]: hist1,
-                annotators[1]: hist2,
+                annotators[0]: histogram(datetimes[0], bins=bins)[0],
+                annotators[1]: histogram(datetimes[1], bins=bins)[0],
             },
         )
         / n_annot_max
@@ -557,8 +559,8 @@ def timeline(
         Matplotlib axes object where the scatterplot and regression line will be drawn.
     **kwargs: Additional keyword arguments depending on the mode.
         - color: str | list[str]
-            Color or list of colors for the histogram bars.
-            If not provided, default colors will be used.
+            Colour or list of colours for the histogram bars.
+            If not provided, default colours will be used.
 
     """
     color = kwargs.get("color")
@@ -577,7 +579,7 @@ def timeline(
 
     ax.grid(color="k", linestyle="-", linewidth=0.2)
     ax.set_yticks(np.arange(0, len(labels), 1))
-    ax.set_yticklabels(labels[::-1])
+    ax.set_yticklabels(labels)
     ax.set_xlabel("Date")
     ax.set_xlim(
         df["start_datetime"].min().floor("1d"),
@@ -606,12 +608,15 @@ def get_bin_size_str(bin_size: Timedelta | BaseOffset) -> str:
     return str(bin_size.n) + bin_size.freqstr
 
 
-def set_y_axis_to_percentage(
-    ax: plt.Axes,
-) -> None:
+def set_y_axis_to_percentage(ax: plt.Axes, max_val: float) -> None:
     """Set y-axis to percentage."""
-    ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
-    ax.set_yticks(np.arange(0, 1.02, 0.2))
+    ax.yaxis.set_major_formatter(
+        plt.FuncFormatter(lambda y, _: f"{(y / max_val) * 100:.0f}%"),
+    )
+
+    current_label = ax.get_ylabel()
+    if current_label and "%" not in current_label:
+        ax.set_ylabel(f"{current_label} (%)")
 
 
 def set_dynamic_ylim(ax: plt.Axes,
@@ -639,9 +644,8 @@ def set_plot_title(ax: plt.Axes, annotators: list[str], labels: list[str]) -> No
 
 def shade_no_effort(
     ax: plt.Axes,
-    bin_starts: Index,
     observed: RecordingPeriod,
-    bar_width: Timedelta,
+    legend: bool,
 ) -> None:
     """Shade areas of the plot where no observation effort was made.
 
@@ -649,31 +653,96 @@ def shade_no_effort(
     ----------
     ax : plt.Axes
         The axes on which to draw the shaded regions.
-    bin_starts : Index
-        A datetime index representing the start times of each bin.
     observed : RecordingPeriod
         A Series with observation counts or flags, indexed by datetime.
         Should be aligned or re-indexable to `bin_starts`.
-    bar_width : Timedelta
-        Width of each time bin. Used to compute the span of the shaded areas.
-
+    legend : bool
+        Wether to add the legend entry for the shaded regions.
 
     """
+    # Convert effort IntervalIndex → DatetimeIndex (bin starts)
+    effort_by_start = Series(
+        observed.counts.values,
+        index=[i.left for i in observed.counts.index],
+    )
+
+    bar_width = effort_by_start.index[1] - effort_by_start.index[0]
     width_days = bar_width.total_seconds() / 86400
-    no_effort_bins = bin_starts[observed.counts.reindex(bin_starts) == 0]
-    for ts in no_effort_bins:
+
+    max_effort = bar_width / observed.timebin_origin
+    effort_fraction = effort_by_start / max_effort
+
+    first_elem = Series([0], index=[effort_fraction.index[0] - bar_width])
+    last_elem = Series([0], index=[effort_fraction.index[-1] + bar_width])
+    effort_fraction = concat([first_elem, effort_fraction, last_elem])
+
+    no_effort = effort_fraction[effort_fraction == 0]
+    partial_effort = effort_fraction[(effort_fraction > 0) & (effort_fraction < 1)]
+
+    # Get legend handle
+    handles1, labels1 = ax.get_legend_handles_labels()
+
+    _draw_effort_spans(
+        ax=ax,
+        effort_index=partial_effort.index,
+        width_days=width_days,
+        facecolor="0.65",
+        alpha=0.1,
+        label="partial data",
+    )
+
+    _draw_effort_spans(
+        ax=ax,
+        effort_index=no_effort.index,
+        width_days=width_days,
+        facecolor="0.45",
+        alpha=0.15,
+        label="no data",
+    )
+
+    # Add effort legend to current plot legend
+    handles_effort = []
+    if len(partial_effort) > 0:
+        handles_effort.append(
+            Patch(facecolor="0.65", alpha=0.1, label="partial data"),
+        )
+    if len(no_effort) > 0:
+        handles_effort.append(
+            Patch(facecolor="0.45", alpha=0.15, label="no data"),
+        )
+    if handles_effort and legend:
+        labels_effort = [h.get_label() for h in handles_effort]
+        handles = handles1 + handles_effort
+        labels = labels1 + labels_effort
+        ax.legend(
+            handles,
+            labels,
+            bbox_to_anchor=(1.01, 1),
+            loc="upper left",
+        )
+
+
+def _draw_effort_spans(
+        ax: plt.Axes,
+        effort_index: DatetimeIndex,
+        width_days: float,
+        *,
+        facecolor: str,
+        alpha: float,
+        label: str,
+) -> None:
+    """Draw vertical lines for effort plot."""
+    for ts in effort_index:
         start = mdates.date2num(ts)
-        ax.axvspan(start, start + width_days, color="grey", alpha=0.08, zorder=1.5)
-
-    x_min, x_max = ax.get_xlim()
-    data_min = mdates.date2num(bin_starts[0])
-    data_max = mdates.date2num(bin_starts[-1]) + width_days
-
-    if x_min < data_min:
-        ax.axvspan(x_min, data_min, color="grey", alpha=0.08, zorder=1.5)
-    if x_max > data_max:
-        ax.axvspan(data_max, x_max, color="grey", alpha=0.08, zorder=1.5)
-    ax.set_xlim(x_min, x_max)
+        ax.axvspan(
+            start,
+            start + width_days,
+            facecolor=facecolor,
+            alpha=alpha,
+            linewidth=0,
+            zorder=1,
+            label=label,
+        )
 
 
 def add_sunrise_sunset(ax: Axes, lat: float, lon: float, tz: tzinfo) -> None:

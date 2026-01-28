@@ -8,6 +8,8 @@ from pytz import timezone
 
 from post_processing.dataclass.data_aplose import DataAplose
 from post_processing.utils.core_utils import (
+    add_recording_period,
+    add_season_period,
     add_weak_detection,
     get_coordinates,
     get_count,
@@ -15,13 +17,11 @@ from post_processing.utils.core_utils import (
     get_season,
     get_sun_times,
     get_time_range_and_bin_size,
+    json2df,
     localize_timestamps,
     round_begin_end_timestamps,
-    timedelta_to_str,
-    add_season_period,
-    add_recording_period,
     set_bar_height,
-    json2df,
+    timedelta_to_str,
 )
 
 
@@ -409,10 +409,11 @@ def test_add_season_no_data() -> None:
 
 # %% add_recording_period
 
+
 def test_add_recording_period_valid() -> None:
     fig, ax = plt.subplots()
     start = Timestamp("2025-01-01T00:00:00+00:00")
-    stop  = Timestamp("2025-01-02T00:00:00+00:00")
+    stop = Timestamp("2025-01-02T00:00:00+00:00")
 
     ts = date_range(start=start, end=stop, freq="H", tz="UTC")
     values = list(range(len(ts)))
@@ -423,7 +424,7 @@ def test_add_recording_period_valid() -> None:
             [
                 Timestamp("2025-01-01T00:00:00+00:00"),
                 Timestamp("2025-01-02T00:00:00+00:00"),
-            ]
+            ],
         ],
         columns=["deployment_date", "recovery_date"],
     )
@@ -437,6 +438,7 @@ def test_add_recording_period_no_data() -> None:
         add_recording_period(df=df, ax=ax)
 
 # %% set_bar_height
+
 
 def test_set_bar_height_valid() -> None:
     fig, ax = plt.subplots()
@@ -457,6 +459,7 @@ def test_set_bar_height_no_data() -> None:
 
 # %% json2df
 
+
 def test_json2df_valid(tmp_path):
     fake_json = {
         "deployment_date": "2025-01-01T00:00:00+00:00",
@@ -474,7 +477,7 @@ def test_json2df_valid(tmp_path):
             [
                 Timestamp("2025-01-01T00:00:00+00:00"),
                 Timestamp("2025-01-02T00:00:00+00:00"),
-            ]
+            ],
         ],
         columns=["deployment_date", "recovery_date"],
     )

@@ -393,7 +393,6 @@ class DataAplose:
             color = kwargs.get("color")
             season = kwargs.get("season")
             effort = kwargs.get("effort")
-
             if not bin_size:
                 msg = "'bin_size' missing for histogram plot."
                 raise ValueError(msg)
@@ -417,26 +416,30 @@ class DataAplose:
             season = kwargs.get("season", False)
             bin_size = kwargs.get("bin_size")
 
-            return heatmap(df=df_filtered,
-                           ax=ax,
-                           bin_size=bin_size,
-                           time_range=time,
-                           show_rise_set=show_rise_set,
-                           season=season,
-                           coordinates=self.coordinates,
-                           )
+            return heatmap(
+                df=df_filtered,
+                ax=ax,
+                bin_size=bin_size,
+                time_range=time,
+                show_rise_set=show_rise_set,
+                season=season,
+                coordinates=self.coordinates,
+            )
 
         if mode == "scatter":
             show_rise_set = kwargs.get("show_rise_set", True)
             season = kwargs.get("season", False)
+            effort = kwargs.get("effort")
 
-            return scatter(df=df_filtered,
-                           ax=ax,
-                           time_range=time,
-                           show_rise_set=show_rise_set,
-                           season=season,
-                           coordinates=self.coordinates,
-                           )
+            return scatter(
+                df=df_filtered,
+                ax=ax,
+                time_range=time,
+                show_rise_set=show_rise_set,
+                season=season,
+                coordinates=self.coordinates,
+                effort=effort,
+            )
 
         if mode == "agreement":
             bin_size = kwargs.get("bin_size")
@@ -450,7 +453,11 @@ class DataAplose:
                 label,
             )
 
-            return timeline(df=df_filtered, ax=ax, color=color)
+            return timeline(
+                df=df_filtered,
+                ax=ax,
+                color=color,
+            )
 
         msg = f"Unsupported plot mode: {mode}"
         raise ValueError(msg)

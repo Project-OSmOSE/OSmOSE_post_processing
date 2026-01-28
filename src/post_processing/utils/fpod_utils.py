@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import matplotlib.dates as mdates
@@ -15,9 +14,10 @@ from osekit.utils.timestamp_utils import strftime_osmose_format, strptime_from_t
 from pandas import (
     DataFrame,
     DateOffset,
+    Series,
     Timedelta,
+    Timestamp,
     concat,
-    date_range,
     notna,
     read_csv,
     to_datetime,
@@ -25,10 +25,12 @@ from pandas import (
     to_timedelta,
 )
 
-from post_processing.utils.core_utils import get_coordinates, get_sun_times
+from post_processing.utils.filtering_utils import find_delimiter
 from user_case.config import season_color, site_colors
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pytz
 
 logger = logging.getLogger(__name__)
@@ -40,9 +42,9 @@ def pod2aplose(
     dataset_name: str,
     annotation: str,
     annotator: str,
-    bin_size: int = 60,
+    bin_size: Timedelta,
 ) -> DataFrame:
-    """Format PODs DataFrame to match APLOSE format.
+    """Format PODs DataFrame to match an APLOSE format.
 
     Parameters
     ----------
@@ -56,7 +58,7 @@ def pod2aplose(
         annotation name.
     annotator: str
         annotator name.
-    bin_size: int
+    bin_size: Timedelta
         Duration of the detections in seconds.
 
     Returns
@@ -65,327 +67,152 @@ def pod2aplose(
         An APLOSE formatted DataFrame.
 
     """
-    df = df.copy()
-    df["_temp_dt"] = [
-        tz.localize(strptime_from_text(entry, "%d/%m/%Y %H:%M"))
-        for entry in df["ChunkEnd"]
+    fpod_start_dt = [
+        tz.localize(entry)
+        for entry in df["Datetime"]
     ]
-
-    df = df.sort_values("_temp_dt").reset_index(drop=True)
-
-    fpod_start_dt = df["_temp_dt"].tolist()
-    fpod_end_dt = [entry + Timedelta(seconds=bin_size) for entry in fpod_start_dt]
 
     data = {
         "dataset": [dataset_name] * len(df),
-        "filename": [strftime_osmose_format(entry) for entry in fpod_start_dt],
+        "filename": list(fpod_start_dt),
         "start_time": [0] * len(df),
-        "end_time": [bin_size] * len(df),
+        "end_time": [bin_size.total_seconds()] * len(df),
         "start_frequency": [0] * len(df),
         "end_frequency": [0] * len(df),
         "annotation": [annotation] * len(df),
         "annotator": [annotator] * len(df),
-        "start_datetime": [strftime_osmose_format(entry) for entry in fpod_start_dt],
-        "end_datetime": [strftime_osmose_format(entry) for entry in fpod_end_dt],
-        "is_box": [0] * len(df),
-        "deploy.name": df["deploy.name"].tolist(),
+        "start_datetime": [
+            strftime_osmose_format(entry.floor(bin_size)) for entry in fpod_start_dt
+        ],
+        "end_datetime": [
+            strftime_osmose_format(entry.ceil(bin_size)) for entry in fpod_start_dt
+        ],
+        "type": ["WEAK"] * len(df),
+        "deploy": df["Deploy"].tolist(),
     }
 
     return DataFrame(data)
 
 
-def csv_folder(
-    folder_path: Path,
-    sep: str = ";",
-    encoding: str = "latin-1",
+def load_pod_folder(
+    folder: Path,
+    ext: str,
 ) -> DataFrame:
-    """Process all CSV files from a folder.
+    """Read POD's result files from a folder.
 
     Parameters
     ----------
-    folder_path: Path
+    folder: Path
         Folder's place.
-    sep: str, default=";"
-        Column separator.
-    encoding: str, default="latin-1"
-        File encoding.
+    ext: str
+        File extension of result files.
 
     Returns
     -------
     DataFrame
-        Concatenated data with optional filename column.
+        Concatenated data.
 
     Raises
     ------
     ValueError
-        If no CSV files found.
+        If no result files are found.
 
     """
-    all_files = list(folder_path.rglob("*.csv"))
+    if ext not in {"csv", "txt"}:
+        msg = f"Invalid file extension: {ext}"
+        raise ValueError(msg)
+
+    all_files = sorted(folder.rglob(f"*.{ext}"))
 
     if not all_files:
-        msg = f"No .csv files found in {folder_path}"
+        msg = f"No .{ext} files found in {folder}"
         raise ValueError(msg)
 
     all_data = []
     for file in all_files:
-        df = read_csv(file, sep=sep, encoding=encoding, dtype="O")
-        df["deploy.name"] = file.stem
-        all_data.append(df)
-
-    return concat(all_data, ignore_index=True)
-
-
-def txt_folder(
-    folder_path: Path,
-    sep: str = "\t",
-) -> DataFrame:
-    r"""Process all TXT files from a folder.
-
-    Parameters
-    ----------
-    folder_path: Path
-        Folder's place.
-    sep: str, default="\t"
-        Column separator.
-
-    Returns
-    -------
-    DataFrame
-       Concatenated data from all TXT files.
-
-    """
-    all_files = list(Path(folder_path).rglob("*.txt"))
-
-    if not all_files:
-        msg = f"No .txt files found in {folder_path}"
-        raise ValueError(msg)
-
-    all_data = []
-    for file in all_files:
-        file_path = folder_path / file
-        df = read_csv(file_path, sep=sep)
-        all_data.append(df)
-
-    return concat(all_data, ignore_index=True)
-
-
-def parse_timestamps(
-    df: DataFrame,
-    col_timestamp: str,
-    date_formats: list[str] | None = None,
-) -> DataFrame:
-    """Parse timestamp column with multiple possible formats.
-
-    Parameters
-    ----------
-    df: DataFrame
-        Input dataframe.
-    col_timestamp: str
-        Name of the timestamp column to parse.
-    date_formats: list[str], optional
-        List of strptime formats to try. If None, uses common formats.
-
-    Returns
-    -------
-    DataFrame
-        Copy of df with parsed timestamps.
-
-    """
-    if date_formats is None:
-        date_formats = [
-            "%Y-%m-%dT%H:%M:%S.%f%z",
-            "%Y-%m-%dT%H:%M:%S:%Z",
-            "%Y-%m-%dT%H:%M:%S.%f",
-            "%Y-%m-%dT%H:%M:%S",
-            "%Y-%m-%d %H:%M:%S.%f",
-            "%d/%m/%Y %H:%M",
-        ]
-
-    df = df.copy()
-    df[col_timestamp] = df[col_timestamp].apply(
-        lambda x: strptime_from_text(x, date_formats))
-    return df
-
-
-def required_columns(
-    df: DataFrame,
-    columns: list[str],
-) -> None:
-    """Validate that required columns exist in dataframe.
-
-    Parameters
-    ----------
-    df: DataFrame
-        Table to validate.
-    columns : list[str]
-        List of required column names.
-
-    Raises
-    ------
-    ValueError
-        If any required column is missing.
-
-    """
-    for col in columns:
-        if col not in df.columns:
-            msg = f"'{col}' not found in {df}"
-            raise ValueError(msg)
-
-
-def create_mask(
-    df: DataFrame,
-    col_timestamp: str,
-    col_start: str,
-    col_end: str,
-) -> DataFrame:
-    """Filter rows to keep only those within deployment period.
-
-    Parameters
-    ----------
-    df : DataFrame
-        Table with timestamp and deployment period columns.
-    col_timestamp : str
-        Name of timestamp column.
-    col_start : str
-        Name of deployment start date column.
-    col_end : str
-        Name of deployment end date column.
-
-    Returns
-    -------
-    DataFrame
-        Filtered dataframe with rows in deployment periods.
-
-    """
-    mask = (
-        (df[col_timestamp] >= df[col_start])
-    & (df[col_timestamp] <= df[col_end])
-        & df[col_timestamp].notna()
-        & df[col_start].notna()
-        & df[col_end].notna()
-    )
-    return df[mask].copy()
-
-
-def meta_cut_aplose(
-    raw_data: DataFrame,
-    metadata: DataFrame,
-) -> DataFrame:
-    """Filter data to keep only rows within deployment periods.
-
-    Parameters
-    ----------
-    raw_data : DataFrame
-        Table containing deployment name and timestamps.
-    metadata : DataFrame
-        Metadata with deployment periods (start/end dates).
-
-    Returns
-    -------
-    DataFrame
-        Filtered data with only rows within deployment periods.
-
-    """
-    required_columns(
-        raw_data, ["deploy.name", "start_datetime"])
-    required_columns(
-        metadata, ["deploy.name", "deployment_date", "recovery_date"])
-
-    raw = parse_timestamps(raw_data, "start_datetime")
-    raw = raw.sort_values(["start_datetime"])
-
-    dfm = raw.merge(
-        metadata[["deploy.name", "deployment_date", "recovery_date"]],
-        on="deploy.name",
-        how="left",
-    )
-
-    out = create_mask(dfm, "start_datetime", "deployment_date", "recovery_date")
-
-    columns_to_drop = [
-        col for col in ["deployment_date", "recovery_date"] if col not in raw_data.
-        columns]
-    if columns_to_drop:
-        out = out.drop(columns=columns_to_drop)
-
-    return out.sort_values(["start_datetime"]).reset_index(drop=True)
-
-
-def add_utc(
-    df: DataFrame,
-    cols: list,
-    fr: str = "h",
-) -> DataFrame:
-    """Create a DataFrame with one line per hour between start and end dates.
-
-    Keep the number of detections per hour between these dates.
-
-    Parameters
-    ----------
-    df: DataFrame
-        Metadata dataframe with deployments information (previously exported as json).
-    cols:list
-        Timestamp column names.
-    fr:str
-        Frequency of the range of detections.
-
-    Returns
-    -------
-    DataFrame
-        A full period of time with positive and negative hours to detections.
-
-    """
-    for col in df[cols]:
-        df[col] = to_datetime(df[col], utc=True)
-        df[col] = df[col].dt.floor(fr)
-    return df
-
-
-def build_range(
-    df: DataFrame,
-    fr: str = "h",
-) -> DataFrame:
-    """Create a DataFrame with one line per hour between start and end dates.
-
-    Keep the number of detections per hour between these dates.
-
-    Parameters
-    ----------
-    df: DataFrame
-        Metadata dataframe with deployments information (previously exported as json)
-    fr:str
-        Frequency of the range of detections.
-
-    Returns
-    -------
-    DataFrame
-        A full period of time with positive and negative hours to detections.
-
-    """
-    add_utc(df, ["Deb", "Fin"], fr)
-
-    all_ranges = []
-    for _, row in df.iterrows():
-        hours = date_range(row["Deb"], row["Fin"], freq=fr)
-        tmp = DataFrame(
-            {
-                "deploy.name": row["deploy.name"],
-                "start_datetime": hours,
-            },
+        sep = find_delimiter(file)
+        df = read_csv(
+            file,
+            sep=sep,
         )
-        all_ranges.append(tmp)
 
-    return concat(all_ranges, ignore_index=True)
+        df["Deploy"] = file.stem.strip().lower().replace(" ", "_")
+        all_data.append(df)
+
+    data = concat(all_data, ignore_index=True)
+
+    if ext == "csv":
+        return _process_csv_data(data)
+    if ext == "txt":
+        return _process_txt_data(data)
+
+    msg = f"Could not load {ext} result folder"
+    raise ValueError(msg)
 
 
-def feeding_buzz(
+def _process_csv_data(data: DataFrame) -> DataFrame:
+    """Process CSV data with filtering and datetime conversion."""
+    data_filtered = _filter_csv_data(data)
+    data_filtered["Datetime"] = [
+        strptime_from_text(dt, "%d/%m/%Y %H:%M")
+        for dt in data_filtered["ChunkEnd"]
+    ]
+    return data_filtered.sort_values(by=["Datetime"]).reset_index(drop=True)
+
+
+def _filter_csv_data(data: DataFrame) -> DataFrame:
+    """Filter CSV data based on available columns."""
+    if "%TimeLost" in data.columns:
+        data_filtered = data[data["File"].notna()].copy()
+        data_filtered = data_filtered[data_filtered["Nall/m"].notna()]
+    else:
+        data_filtered = data[data["DPM"] > 0].copy()
+        data_filtered = data_filtered[data_filtered["Nall"].notna()]
+
+    return data_filtered
+
+
+def _process_txt_data(data: DataFrame) -> DataFrame:
+    """Process TXT data with datetime conversion."""
+    data["Datetime"] = data.apply(get_feeding_buzz_datetime, axis=1)
+    return data.drop_duplicates().sort_values(by=["Datetime"]).reset_index(drop=True)
+
+
+def get_feeding_buzz_datetime(row: Series) -> Timestamp:
+    """Convert feeding buzz timestamp into a standard Timestamp.
+
+    The conversion method differs based on the POD type.
+    """
+    try:
+        return (
+            to_datetime("1900-01-01")
+            + to_timedelta(row["Minute"], unit="min")
+            + to_timedelta(row["microsec"] / 1e6, unit="sec")
+            - to_timedelta(2, unit="D")
+        )
+    except (KeyError, TypeError, ValueError):
+        pass
+
+    try:
+        return strptime_from_text(
+            f"{row['Minute']}:{int(str(row['microsec'])[0]):02d}.{int(str(row['microsec'])[1:])}",
+            "%-d/%-m/%Y %H:%M:%S.%f",
+        )
+    except (KeyError, TypeError, ValueError):
+        pass
+
+    msg = "Could not convert feeding buzz timestamp."
+    raise ValueError(msg)
+
+
+def process_feeding_buzz(
     df: DataFrame,
     species: str,
 ) -> DataFrame:
-    """Process a CPOD/FPOD feeding buzz detection file.
+    """Process a POD feeding buzz detection DataFrame.
 
-    Gives the feeding buzz duration, depending on the studied species.
+    Give the feeding buzz duration, depending on the studied species
+    (`delphinid`, `porpoise` or `commerson`).
 
     Parameters
     ----------
@@ -397,322 +224,69 @@ def feeding_buzz(
     Returns
     -------
     DataFrame
-        Containing all ICIs for every positive minutes to clicks
+        Containing all ICIs for every positive minute to click
 
     """
-    df["microsec"] /= 1e6
+    df["ICI"] = df["Datetime"].diff()
+    df["Datetime"] = df["Datetime"].dt.floor("min")
 
-    try:
-        df["Minute"].astype(int)
-        df["datetime"] = (
-            to_datetime("1900-01-01")
-            + to_timedelta(df["Minute"], unit="min")
-            + to_timedelta(df["microsec"], unit="sec")
-            - to_timedelta(2, unit="D")
-        )
-        df["start_datetime"] = df["datetime"].dt.floor("min")
-    except (ValueError, TypeError):
-        df["datetime"] = (
-                to_datetime(df["Minute"], dayfirst=True)
-                + to_timedelta(df["microsec"], unit="sec")
-        )
-        df["start_datetime"] = to_datetime(df["Minute"], dayfirst=True)
-
-    df["ICI"] = df["datetime"].diff()
-
-    if species == "Dauphin":  # Herzing et al., 2014
-        df["Buzz"] = df["ICI"].between(Timedelta(0),
-                                       Timedelta(seconds=0.02)).astype(int)
-    elif species == "Marsouin":  # Nuuttila et al., 2013
-        df["Buzz"] = df["ICI"].between(Timedelta(0),
-                                       Timedelta(seconds=0.01)).astype(int)
-    elif species == "Commerson":  # Reyes Reyes et al., 2015
-        df["Buzz"] = df["ICI"].between(Timedelta(0),
-                                       Timedelta(seconds=0.005)).astype(int)
+    if species.lower() == "delphinid":  # Herzing et al., 2014
+        df["Buzz"] = df["ICI"].between(
+            Timedelta(0),
+            Timedelta(seconds=0.02),
+        ).astype(int)
+    elif species.lower() == "porpoise":  # Nuuttila et al., 2013
+        df["Buzz"] = df["ICI"].between(
+            Timedelta(0),
+            Timedelta(seconds=0.01),
+        ).astype(int)
+    elif species.lower() == "commerson":  # Reyes Reyes et al., 2015
+        df["Buzz"] = df["ICI"].between(
+            Timedelta(0),
+            Timedelta(seconds=0.005),
+        ).astype(int)
     else:
         msg = "This species is not supported"
         raise ValueError(msg)
 
-    f = df.groupby(["start_datetime"])["Buzz"].sum().reset_index()
+    df_buzz = df.groupby(["Datetime"])["Buzz"].sum().reset_index()
+    df_buzz["Foraging"] = to_numeric(
+        df_buzz["Buzz"] != 0, downcast="integer",
+    ).astype(int)
 
-    f["Foraging"] = to_numeric(f["Buzz"] != 0, downcast="integer").astype(int)
-
-    return f
-
-
-def assign_daytime(
-    df: DataFrame,
-) -> DataFrame:
-    """Assign datetime categories to temporal events.
-
-    Categorize daytime of the detection (among 4 categories).
-
-    Parameters
-    ----------
-    df: DataFrame
-        Contains positive hours to detections.
-
-    Returns
-    -------
-    DataFrame
-        The same dataframe with the column daytime.
-
-    """
-    df["start_datetime"] = to_datetime(df["start_datetime"], utc=True)
-    start = df["start_datetime"].min()
-    stop = df["start_datetime"].max()
-    lat, lon = get_coordinates()
-    sunrise, sunset = get_sun_times(start, stop, lat, lon)
-
-    sun_times = DataFrame(
-        {"date": date_range(start, stop, freq="D"),
-        "sunrise": [Timedelta(h, "hours") for h in sunrise],
-        "sunset": [Timedelta(h, "hours") for h in sunset],
-        })
-
-    sun_times["sunrise"] = sun_times["date"].dt.floor("D") + sun_times["sunrise"]
-    sun_times["sunset"] = sun_times["date"].dt.floor("D") + sun_times["sunset"]
-
-    for i, row in df.iterrows():
-        dpm_i = row["start_datetime"]
-        if notna(dpm_i):  # Check if time is not NaN
-            jour_i = sun_times[
-                (sun_times["sunrise"].dt.year == dpm_i.year)
-                & (sun_times["sunrise"].dt.month == dpm_i.month)
-                & (sun_times["sunrise"].dt.day == dpm_i.day)
-                ]
-            if not jour_i.empty:  # Ensure there's a matching row
-                jour_i = jour_i.iloc[0]  # Extract first match
-                if (dpm_i <= jour_i["sunrise"]) | (dpm_i > jour_i["sunset"]):
-                    df.loc[i, "REGIME"] = 1
-                else:
-                    df.loc[i, "REGIME"] = 2
-
-    return df
+    return df_buzz
 
 
-def is_dpm_col(
-    df: DataFrame,
-) -> DataFrame:
-    """Ensure DPM column exists with default value of 1.
+def process_timelost(df: DataFrame, threshold: int = 0) -> DataFrame:
+    """Process TimeLost DataFrame.
+
+    Returns relevant columns and reshape into hourly data.
 
     Parameters
     ----------
     df: DataFrame
-        Input dataframe.
-
-    Returns
-    -------
-    DataFrame
-        Copy of df with DPM column.
-
-    """
-    df = df.copy()
-    if "DPM" not in df.columns:
-        df["DPM"] = 1
-    return df
-
-
-def resample_dpm(
-    df: DataFrame,
-    frq: str,
-    cols: dict[str, str],
-    group_by: list[str] | None = None,
-) -> DataFrame:
-    """Resample DPM data to specified time frequency.
-
-    Aggregates Detection Positive Minutes (DPM) by time period,
-    optionally preserving grouping columns like deployment name.
-
-    Parameters
-    ----------
-    df: DataFrame
-        CPOD result DataFrame with DPM data.
-    frq: str
-        Pandas frequency string: "D" (day), "h" (hour), "10min", etc.
-    cols: dict[str, str]
-        Dictionary of column names and to process them.
-    group_by: list[str], optional
-        Columns to group by (e.g., ["deploy.name", "start_datetime"]).
-        If None, groups only by start_datetime.
-
-    Returns
-    -------
-    DataFrame
-        Resampled DataFrame with aggregated DPM values.
-
-    Examples
-    --------
-    >>> # Daily aggregation per deployment
-    >>> resample_dpm(df, "D", {"Foraging":"sum"}, group_by=["deploy.name"])
-
-    >>> # Hourly aggregation with site info preserved
-    >>> resample_dpm(df, "h", cols={"DPM":"sum","deploy.name":"first"})
-
-    """
-    df = is_dpm_col(df)
-    df = add_utc(df, ["start_datetime"], frq)
-
-    # Determine grouping columns
-    if group_by is None:
-        group_by = ["start_datetime"]
-
-    return df.groupby(group_by).agg(cols).reset_index()
-
-
-def deploy_period(
-    df: DataFrame,
-    col_timestamp: str = "start_datetime",
-    col_deployment: str = "deploy.name",
-) -> DataFrame:
-    """Extract start and end timestamps for each deployment.
-
-    Parameters
-    ----------
-    df: DataFrame
-        Input dataframe with parsed timestamps.
-    col_timestamp: str, default="start_datetime"
-        Name of the timestamp column.
-    col_deployment: str, default="deploy.name"
-        Name of the deployment identifier column.
-
-    Returns
-    -------
-    DataFrame
-        Table with columns: [col_deployment, 'Deb', 'Fin'].
-
-    """
-    return (
-        df.groupby([col_deployment])
-        .agg(Deb=(col_timestamp, "first"), Fin=(col_timestamp, "last"))
-        .reset_index()
-    )
-
-
-def first_last(
-    df: DataFrame,
-    col_timestamp: str = "start_datetime",
-    col_deployment: str = "deploy.name",
-    date_formats: list[str] | None = None,
-) -> DataFrame:
-    """Isolate beginning and end of every deployment.
-
-    Parameters
-    ----------
-    df: DataFrame
-        CPOD result DataFrame.
-    col_timestamp: str, default="start_datetime"
-        Name of the timestamps' column.
-    col_deployment: str, default="deploy.name"
-        Name of the deployment identifier column.
-    date_formats: list[str], optional
-        List of date formats to try for parsing.
-
-    Returns
-    -------
-    DataFrame
-        Table with deployment periods (Deb, Fin).
-
-    """
-    df_parsed = parse_timestamps(df, col_timestamp, date_formats)
-    return deploy_period(df_parsed, col_timestamp, col_deployment)
-
-
-def actual_data(
-    df: DataFrame,
-    meta: DataFrame,
-) -> DataFrame:
-    """Create a table with beginning and end of every deployment using metadata.
-
-    Parameters
-    ----------
-    df: DataFrame
-        Contains beginning and end for every deployment.
-    meta: DataFrame
-        Contains metadata for every deployment.
-
-    Returns
-    -------
-    DataFrame
-        Table with corrected deployment periods (Deb, Fin).
-
-    """
-    required_columns(
-        df, ["deploy.name", "ChunkEnd"])
-    required_columns(
-        meta, ["deploy.name", "deployment_date", "recovery_date"])
-
-    beg_end = first_last(df, "ChunkEnd")
-
-    beg_end = add_utc(beg_end, ["Deb", "Fin"])
-
-    final = beg_end.merge(meta[["deployment_date", "recovery_date", "deploy.name"]],
-                          on="deploy.name", how="left")
-    final.loc[final["Deb"] < final["deployment_date"], "Deb"] = final["deployment_date"]
-    final.loc[final["Fin"] > final["recovery_date"], "Fin"] = final["recovery_date"]
-    final.loc[final["Deb"] > final["Fin"], ["Deb", "Fin"]] = None
-    final = final.sort_values(by=["Deb"])
-    return final.drop(["deployment_date", "recovery_date"], axis=1)
-
-
-def process_tl(tl_files: Path) -> DataFrame:
-    """Process Environmental data extracted from cpod.exe to get a usable dataframe.
-
-    Parameters
-    ----------
-    tl_files: Path
         All your Environmental data files.
+    threshold: float
+        TimeLost threshold.
 
     Returns
     -------
     %TimeLost DataFrame.
 
     """
-    df = csv_folder(tl_files)
-    df = df.dropna()
-    df = parse_timestamps(df, "ChunkEnd")
-    df = add_utc(df, ["ChunkEnd"], "h")
-    df["start_datetime"] = df["ChunkEnd"]
+    if threshold not in range(101):
+        msg = "Threshold must integer between 0 and 100."
+        raise ValueError(msg)
 
-    return df.sort_values(["start_datetime"])
-
-
-def filter_tl(df: DataFrame, tl: int) -> DataFrame:
-    """Remove lines with a %TimeLost superior to the chosen threshold.
-
-    Parameters
-    ----------
-    df: DataFrame
-        Table of data and associated TimeLost.
-    tl: int
-        TimeLost filter threshold.
-
-    Returns
-    -------
-    Filtered DataFrame with few %TimeLost.
-
-    """
-    df["%TimeLost"] = (df["%TimeLost"].fillna(tl)).astype(int)
-
-    return df[df["%TimeLost"] < tl]
-
-
-def preserved_data(filtered_df: DataFrame, whole_df: DataFrame) -> float:
-    """Calculate the percentage of preserved data.
-
-    Parameters
-    ----------
-    filtered_df: DataFrame
-        Result of filter_tl.
-    whole_df: DataFrame
-        Table before filtering.
-
-    Returns
-    -------
-    Percentage of preserved data.
-
-    """
-    return (len(filtered_df) / len(whole_df)) * 100
+    df["Datetime"] = df["Datetime"].dt.floor("h")
+    cols_to_drop = [
+        col for col in df.columns if col not in {
+            "File", "Datetime", "Temp", "Angle", "%TimeLost", "Deploy",
+        }
+    ]
+    return df[df["%TimeLost"] <= threshold].drop(
+        columns=cols_to_drop,
+    ).sort_values(["Datetime"]).reset_index(drop=True)
 
 
 def create_matrix(
@@ -747,32 +321,11 @@ def create_matrix(
     return matrix
 
 
-def extract_site(
-    df: DataFrame,
-) -> DataFrame:
-    """Create new columns: site.name and campaign.name, in order to match the metadata.
-
-    Parameters
-    ----------
-    df: DataFrame
-        All values concatenated
-
-    Returns
-    -------
-    DataFrame
-        The same dataframe with two additional columns.
-
-    """
-    required_columns(df, ["deploy.name"])
-    df[["site.name", "campaign.name"]] = df["deploy.name"].str.split("_", expand=True)
-    return df
-
-
 def percent_calc(
     data: DataFrame,
     time_unit: str | None = None,
 ) -> DataFrame:
-    """Calculate percentage of clicks, feeding buzzes and positive hours to detection.
+    """Calculate the percentage of clicks, feeding buzzes and positive hours to detection.
 
     Computed on the entire effort and for every site.
 
@@ -817,7 +370,7 @@ def percent_calc(
 
 
 def site_percent(df: DataFrame, metric: str) -> None:
-    """Plot a graph with percentage of minutes positive to detection for every site.
+    """Plot a graph with the percentage of minutes positive to detection for every site.
 
     Parameters
     ----------

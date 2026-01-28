@@ -3,6 +3,7 @@ from pandas import DataFrame
 
 from post_processing.utils.metrics_utils import detection_perf
 
+
 def test_detection_perf(sample_df: DataFrame) -> None:
     try:
         detection_perf(df=sample_df[sample_df["annotator"].isin(["ann1", "ann4"])], ref=("ann1", "lbl1"))

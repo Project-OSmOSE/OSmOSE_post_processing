@@ -19,6 +19,7 @@ def test_data_aplose_init(sample_df: DataFrame) -> None:
     assert data.begin == sample_df["start_datetime"].min()
     assert data.end == sample_df["end_datetime"].max()
 
+
 def test_filter_df_single_pair(sample_df: DataFrame) -> None:
     data = DataAplose(sample_df)
     filtered_data = data.filter_df(annotator="ann1", label="lbl1")
@@ -30,16 +31,18 @@ def test_filter_df_single_pair(sample_df: DataFrame) -> None:
     ].reset_index(drop=True)
     assert filtered_data.equals(expected)
 
+
 def test_change_tz(sample_df: DataFrame) -> None:
     data = DataAplose(sample_df)
-    new_tz = 'Etc/GMT-7'
+    new_tz = "Etc/GMT-7"
     data.change_tz(new_tz)
-    start_dt = data.df['start_datetime']
-    end_dt = data.df['end_datetime']
+    start_dt = data.df["start_datetime"]
+    end_dt = data.df["end_datetime"]
     assert all(ts.tz.zone == new_tz for ts in start_dt), f"The detection start timestamps have to be in {new_tz} timezone"
     assert all(ts.tz.zone == new_tz for ts in end_dt), f"The detection end timestamps have to be in {new_tz} timezone"
     assert data.begin.tz.zone == new_tz, f"The begin value of the DataAplose has to be in {new_tz} timezone"
     assert data.end.tz.zone == new_tz, f"The end value of the DataAplose has to be in {new_tz} timezone"
+
 
 def test_filter_df_multiple_pairs(sample_df: DataFrame) -> None:
     data = DataAplose(sample_df)

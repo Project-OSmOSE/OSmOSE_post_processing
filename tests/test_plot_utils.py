@@ -1,13 +1,11 @@
 import matplotlib.pyplot as plt
 import pytest
-from matplotlib.ticker import PercentFormatter
-from numpy import arange, testing
 
 from post_processing.utils.plot_utils import (
-    overview,
     _wrap_xtick_labels,
-    set_y_axis_to_percentage,
     get_legend,
+    overview,
+    set_y_axis_to_percentage,
 )
 
 
@@ -57,16 +55,15 @@ def test_wrap_xtick_labels_no_spaces():
     assert wrapped_labels[0] == expected
 
 
-def test_y_axis_formatter_and_ticks():
+def test_set_y_axis_to_percentage():
     fig, ax = plt.subplots()
-
-    set_y_axis_to_percentage(ax)
-
-    assert isinstance(ax.yaxis.get_major_formatter(), PercentFormatter)
-    assert ax.yaxis.get_major_formatter().xmax == 1.0
-
-    expected_ticks = arange(0, 1.02, 0.2)
-    testing.assert_allclose(ax.get_yticks(), expected_ticks)
+    ax.set_ylabel("Accuracy")
+    set_y_axis_to_percentage(ax, max_val=200)
+    formatter = ax.yaxis.get_major_formatter()
+    assert formatter(100, None) == "50%"
+    assert formatter(200, None) == "100%"
+    assert ax.get_ylabel() == "Accuracy (%)"
+    plt.close(fig)
 
 
 def test_single_annotator_multiple_labels():

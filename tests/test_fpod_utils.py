@@ -4,7 +4,7 @@ import pytz
 from pandas import DataFrame
 
 from post_processing.utils.fpod_utils import (
-    csv_folder,
+    load_pod_folder,
     pod2aplose,
 )
 
@@ -142,7 +142,7 @@ def test_csv_folder_single_file(tmp_path) -> None:
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("col1;col2\nval1;val2\nval3;val4", encoding="latin-1")
 
-    result = csv_folder(tmp_path)
+    result = load_pod_folder(tmp_path)
 
     assert isinstance(result, DataFrame)
     assert len(result) == 2

@@ -8,6 +8,7 @@ import datetime
 from typing import TYPE_CHECKING
 
 import pytz
+from osekit.utils.timestamp_utils import strptime_from_text
 from pandas import (
     DataFrame,
     Timedelta,
@@ -485,6 +486,7 @@ def _process_annotator_label_pair(
     ]
     file_vector = [
         filename_vector[i] for i, detected in enumerate(detect_vec) if detected
+        # filename_vector[i + 1] for i, detected in enumerate(detect_vec) if detected
     ]
 
     if not start_datetime:
@@ -570,16 +572,17 @@ def get_filename_timestamps(df: DataFrame, date_parser: str) -> list[Timestamp]:
 
     """
     tz = get_timezone(df)
-    try:
-        return [
-        to_datetime(
+    timestamps = [
+        strptime_from_text(
             ts,
-            format=date_parser,
-        ).tz_localize(tz) for ts in df["filename"]
-        ]
-    except ValueError:
-        msg = """Could not parse timestamps from `df["filename"]`."""
-        raise ValueError(msg) from None
+            datetime_template=date_parser,
+        ) for ts in df["filename"]
+    ]
+
+    if all(t.tz is None for t in timestamps):
+        timestamps = [t.tz_localize(tz) for t in timestamps]
+
+    return timestamps
 
 
 def ensure_in_list(value: str, candidates: list[str], label: str) -> None:
