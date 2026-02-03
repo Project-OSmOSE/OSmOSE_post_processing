@@ -122,7 +122,7 @@ def histo(
         offset = i * bar_width.total_seconds() / 86400
 
         bar_kwargs = {
-            "width": bar_width.total_seconds() / 86400,
+            "width": (bar_width.total_seconds() / 86400),
             "align": "edge",
             "edgecolor": "black",
             "color": color[i],
@@ -469,7 +469,61 @@ def _wrap_xtick_labels(ax: plt.Axes, max_chars: int = 10) -> None:
     ax.set_xticklabels(new_labels, rotation=0)
 
 
-def agreement(
+def count_detections_within_timeframe(
+    df: DataFrame,
+    bin_size: Timedelta | BaseOffset,
+    ) -> DataFrame:
+    """Counts the number of detections in df within bin_size timeframe.
+
+    Parameters
+    ----------
+    df : DataFrame
+        APLOSE-formatted DataFrame.
+        It must contain The annotations of two annotators.
+
+    bin_size : Timedelta | BaseOffset
+        The size of each time bin for aggregating annotation timestamps.
+
+    Returns
+    -------
+    df_hist: Dataframe with columns = annotators and lines = number of detections
+        within the timebin defined by bin_size
+
+    """
+    labels, annotators = get_labels_and_annotators(df)
+
+    datetimes = [
+        list(
+            df[
+                (df["annotator"] == annotators[i]) & (df["annotation"] == labels[i])
+                ]["start_datetime"],
+        )
+        for i in range(2)
+    ]
+
+    # scatter plot
+
+    freq = (
+        bin_size if isinstance(bin_size, Timedelta) else str(bin_size.n) + bin_size.name
+    )
+
+    bins = date_range(
+        start=df["start_datetime"].min().floor(bin_size),
+        end=df["end_datetime"].max().ceil(bin_size),
+        freq=freq,
+    )
+
+    return (
+        DataFrame(
+            {
+                annotators[0]: histogram(datetimes[0], bins=bins)[0],
+                annotators[1]: histogram(datetimes[1], bins=bins)[0],
+            },
+        )
+    )
+
+
+def plot_agreement(
     df: DataFrame,
     bin_size: Timedelta | BaseOffset,
     ax: plt.Axes,
@@ -492,41 +546,11 @@ def agreement(
     ax : matplotlib.axes.Axes
         Matplotlib axes object where the scatterplot and regression line will be drawn.
 
+
+
     """
     labels, annotators = get_labels_and_annotators(df)
-
-    datetimes = [
-        list(
-            df[
-                (df["annotator"] == annotators[i]) & (df["annotation"] == labels[i])
-                ]["start_datetime"],
-        )
-        for i in range(2)
-    ]
-
-    # scatter plot
-    n_annot_max = bin_size.total_seconds() / df["end_time"].iloc[0]
-
-    freq = (
-        bin_size if isinstance(bin_size, Timedelta) else str(bin_size.n) + bin_size.name
-    )
-
-    bins = date_range(
-        start=df["start_datetime"].min().floor(bin_size),
-        end=df["start_datetime"].max().ceil(bin_size),
-        freq=freq,
-    )
-
-    df_hist = (
-        DataFrame(
-            {
-                annotators[0]: histogram(datetimes[0], bins=bins)[0],
-                annotators[1]: histogram(datetimes[1], bins=bins)[0],
-            },
-        )
-        / n_annot_max
-    )
-
+    df_hist = count_detections_within_timeframe(df, bin_size)
     scatterplot(data=df_hist, x=annotators[0], y=annotators[1], ax=ax)
 
     coefficients = polyfit(df_hist[annotators[0]], df_hist[annotators[1]], 1)

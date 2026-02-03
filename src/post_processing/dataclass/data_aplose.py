@@ -27,7 +27,7 @@ from post_processing.utils.filtering_utils import (
 )
 from post_processing.utils.metrics_utils import detection_perf
 from post_processing.utils.plot_utils import (
-    agreement,
+    plot_agreement,
     heatmap,
     histo,
     overview,
@@ -442,7 +442,7 @@ class DataAplose:
 
         if mode == "agreement":
             bin_size = kwargs.get("bin_size")
-            return agreement(df=df_filtered, bin_size=bin_size, ax=ax)
+            return plot_agreement(df=df_filtered, bin_size=bin_size, ax=ax)
 
         if mode == "timeline":
             color = kwargs.get("color")
