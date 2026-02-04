@@ -12,7 +12,7 @@ import numpy as np
 from matplotlib import dates as mdates
 from matplotlib.dates import num2date
 from matplotlib.patches import Patch
-from numpy import ceil, histogram, polyfit
+from numpy import ceil, polyfit
 from pandas import (
     DataFrame,
     DatetimeIndex,
@@ -28,11 +28,9 @@ from scipy.stats import pearsonr
 from post_processing.utils.core_utils import (
     add_season_period,
     get_coordinates,
-    get_count,
     get_labels_and_annotators,
     get_sun_times,
     get_time_range_and_bin_size,
-    round_begin_end_timestamps,
     timedelta_to_str,
 )
 from post_processing.utils.filtering_utils import (
