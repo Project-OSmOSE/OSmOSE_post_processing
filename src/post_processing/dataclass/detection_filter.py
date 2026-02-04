@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import yaml
-from pandas import Timedelta, Timestamp, concat
+from pandas import Timedelta, Timestamp
 
 from post_processing.utils.filtering_utils import (
     read_dataframe,
