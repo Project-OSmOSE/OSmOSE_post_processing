@@ -71,8 +71,8 @@ class DetectionFilter:
 
     @classmethod
     def from_dict(
-            cls,
-            parameters: dict,
+        cls,
+        parameters: dict,
     ) -> DetectionFilter | list[DetectionFilter]:
         """Return a DetectionFilter object from a dict.
 
@@ -105,8 +105,7 @@ class DetectionFilter:
             if filters_dict.get("end"):
                 filters_dict["end"] = Timestamp(filters_dict["end"])
             if filters_dict.get("timestamp_file"):
-                filters_dict["timestamp_file"] = Path(
-                    filters_dict["timestamp_file"])
+                filters_dict["timestamp_file"] = Path(filters_dict["timestamp_file"])
 
             filters.append(cls(**filters_dict))
 
