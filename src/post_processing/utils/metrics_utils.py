@@ -21,12 +21,10 @@ def detection_perf(
     *,
     ref: tuple[str, str],
 ) -> tuple[float, float, float]:
-    """Compute performances metrics for detection.
+    """Compute the performance metrics for detection.
 
-    Performances are computed with a reference annotator in
-    comparison with a second annotator/detector.
-    Precision and recall are computed in regard
-    with a reference annotator/label pair.
+    Performances are computed with a reference annotator/label pair
+    in comparison to a second annotator/label pair.
 
     Parameters
     ----------
@@ -44,43 +42,38 @@ def detection_perf(
     f_score: float
 
     """
-    datetime_begin = df["start_datetime"].min()
-    datetime_end = df["start_datetime"].max()
-    df_freq = str(df["end_time"].max()) + "s"
-    labels = df["annotation"].unique().tolist()
     annotators = df["annotator"].unique().tolist()
-
-    num_annotators = 2
-    if len(annotators) != num_annotators:
+    if len(annotators) != 2:  # noqa: PLR2004
         msg = f"Two annotators needed, DataFrame contains {len(annotators)} annotators"
         raise ValueError(msg)
+
+    selected_annotator1, selected_label1 = ref
 
     if not timestamps:
         timestamps = [
             ts.timestamp()
             for ts in date_range(
-                start=datetime_begin,
-                end=datetime_end,
-                freq=df_freq,
+                start=df["start_datetime"].min(),
+                end=df["start_datetime"].max(),
+                freq=str(df["end_time"].max()) + "s",
             )
         ]
     else:
         timestamps = [ts.timestamp() for ts in timestamps]
 
     # df1 - REFERENCE
-    selected_annotator1 = ref[0]
-    selected_label1 = ref[1]
     selected_annotations1 = df[
         (df["annotator"] == selected_annotator1) & (df["annotation"] == selected_label1)
     ]
+    if selected_annotations1.empty:
+        msg = f"No detection found for {selected_annotator1}/{selected_label1}"
+        raise ValueError(msg)
+
     vec1 = _map_datetimes_to_vector(df=selected_annotations1, timestamps=timestamps)
 
     # df2
-    selected_annotator2 = (
-        next(ant for ant in annotators if ant != selected_annotator1)
-        if len(annotators) == 2  # noqa: PLR2004
-        else selected_annotator1
-    )
+    labels = df["annotation"].unique().tolist()
+    selected_annotator2 = next(ant for ant in annotators if ant != selected_annotator1)
     selected_label2 = (
         next(lbl for lbl in labels if lbl != selected_label1)
         if len(labels) == 2  # noqa: PLR2004
@@ -89,48 +82,92 @@ def detection_perf(
     selected_annotations2 = df[
         (df["annotator"] == selected_annotator2) & (df["annotation"] == selected_label2)
     ]
+
     vec2 = _map_datetimes_to_vector(selected_annotations2, timestamps)
 
-    # Metrics computation
-    true_pos = int(np.sum((vec1 == 1) & (vec2 == 1)))
-    false_pos = int(np.sum((vec1 == 0) & (vec2 == 1)))
-    false_neg = int(np.sum((vec1 == 1) & (vec2 == 0)))
-    true_neg = int(np.sum((vec1 == 0) & (vec2 == 0)))
-    error = int(np.sum((vec1 != 0) & (vec1 != 1) | (vec2 != 0) & (vec2 != 1)))
+    # metrics computation
+    confusion_matrix = {
+        "true_pos": int(np.sum((vec1 == 1) & (vec2 == 1))),
+        "false_pos": int(np.sum((vec1 == 0) & (vec2 == 1))),
+        "false_neg": int(np.sum((vec1 == 1) & (vec2 == 0))),
+        "true_neg": int(np.sum((vec1 == 0) & (vec2 == 0))),
+        "error": int(np.sum((vec1 != 0) & (vec1 != 1) | (vec2 != 0) & (vec2 != 1))),
+    }
 
-    if error != 0:
-        msg = f"Error : {error}"
+    if confusion_matrix["error"] != 0:
+        msg = f"{confusion_matrix['error']} errors in metric computation."
         raise ValueError(msg)
 
-    msg_result = f"{' Detection results ':#^50}\n"
-    msg_result += f"{'Config 1:':<10}{f'{selected_annotator1}/{selected_label1}':>40}\n"
-    msg_result += (
-        f"{'Config 2:':<10}{f'{selected_annotator2}/{selected_label2}':>40}\n\n"
+    if (
+        confusion_matrix["true_pos"] + confusion_matrix["false_pos"] == 0
+        or confusion_matrix["false_neg"] + confusion_matrix["true_pos"] == 0
+    ):
+        msg = "Precision/Recall computation impossible."
+        raise ValueError(msg)
+
+    _log_detection_results(
+        selection1=(selected_annotator1, selected_label1),
+        selection2=(selected_annotator2, selected_label2),
+        matrix=confusion_matrix,
+        df=df,
     )
-    msg_result += f"{'True positive:':<25}{true_pos:>25}\n"
-    msg_result += f"{'True negative:':<25}{true_neg:>25}\n"
-    msg_result += f"{'False positive:':<25}{false_pos:>25}\n"
-    msg_result += f"{'False negative:':<25}{false_neg:>25}\n\n"
 
-    if true_pos + false_pos == 0 or false_neg + true_pos == 0:
-        msg = "Precision/Recall computation impossible"
-        raise ValueError(msg)
+    return (
+        _get_precision(confusion_matrix),
+        _get_recall(confusion_matrix),
+        _get_f_score(confusion_matrix),
+    )
 
-    precision = true_pos / (true_pos + false_pos)
-    recall = true_pos / (true_pos + false_neg)
-    f_score = 2 * (precision * recall) / (precision + recall)
-    msg_result += f"{'Precision:':<25}{precision:>25.2f}\n"
-    msg_result += f"{'Recall:':<25}{recall:>25.2f}\n"
-    msg_result += f"{'F-score:':<25}{f_score:>25.2f}\n\n"
 
-    df_union = intersection_or_union(df, "union")
-    df_intersection = intersection_or_union(df, "intersection")
-    msg_result += f"{'Union:':<25}{len(df_union):>25.0f}\n"
-    msg_result += f"{'Intersection:':<25}{len(df_intersection):>25.0f}\n"
+def _get_precision(confusion_matrix: dict) -> float:
+    """Compute precision."""
+    tp = confusion_matrix["true_pos"]
+    fp = confusion_matrix["false_pos"]
+    return tp / (tp + fp)
 
+
+def _get_recall(confusion_matrix: dict) -> float:
+    """Compute recall."""
+    tp = confusion_matrix["true_pos"]
+    fn = confusion_matrix["false_neg"]
+    return tp / (tp + fn)
+
+
+def _get_f_score(confusion_matrix: dict) -> float:
+    """Compute F-score."""
+    precision = _get_precision(confusion_matrix)
+    recall = _get_recall(confusion_matrix)
+    return 2 * (precision * recall) / (precision + recall)
+
+
+def _log_detection_results(
+    selection1: tuple[str, str],
+    selection2: tuple[str, str],
+    matrix: dict,
+    df: DataFrame,
+) -> None:
+    """Log detection performance results."""
+    annotator1, label1 = selection1
+    annotator2, label2 = selection2
+    precision = _get_precision(matrix)
+    recall = _get_recall(matrix)
+    f_score = _get_f_score(matrix)
+
+    msg_result = (
+        f"{' Detection results ':#^50}\n"
+        f"{'Config 1:':<10}{f'{annotator1}/{label1}':>40}\n"
+        f"{'Config 2:':<10}{f'{annotator2}/{label2}':>40}\n\n"
+        f"{'True positive:':<25}{matrix['true_pos']:>25}\n"
+        f"{'True negative:':<25}{matrix['true_neg']:>25}\n"
+        f"{'False positive:':<25}{matrix['false_pos']:>25}\n"
+        f"{'False negative:':<25}{matrix['false_neg']:>25}\n\n"
+        f"{'Precision:':<25}{precision:>25.2f}\n"
+        f"{'Recall:':<25}{recall:>25.2f}\n"
+        f"{'F-score:':<25}{f_score:>25.2f}\n\n"
+        f"{'Union:':<25}{len(intersection_or_union(df, 'union')):>25.0f}\n"
+        f"{'Intersection:':<25}{len(intersection_or_union(df, 'intersection')):>25.0f}\n"
+    )
     logging.info(msg_result)
-
-    return precision, recall, f_score
 
 
 def _map_datetimes_to_vector(df: DataFrame, timestamps: list[int]) -> ndarray:
