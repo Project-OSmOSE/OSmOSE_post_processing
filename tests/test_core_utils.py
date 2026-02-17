@@ -392,18 +392,18 @@ def test_add_wd(sample_df: DataFrame) -> None:
 # %% add_season_period
 
 def test_add_season_valid() -> None:
-    fig, ax = plt.subplots()
-    start = Timestamp("2025-01-01T00:00:00+00:00")
-    stop = Timestamp("2025-01-02T00:00:00+00:00")
-
-    ts = date_range(start=start, end=stop, freq="H", tz="UTC")
-    values = list(range(len(ts)))
-    ax.plot(ts, values)
+    _, ax = plt.subplots()
+    start = Timestamp("2025-01-01")
+    stop = Timestamp("2026-01-01")
+    freq = Timedelta("1d")
+    ts = date_range(start=start, end=stop, freq=freq, tz="UTC")
+    values = [date.day for date in ts]
+    [ax.bar(loc + freq, height) for loc, height in zip(ts, values, strict=True)]
     add_season_period(ax=ax)
 
 
 def test_add_season_no_data() -> None:
-    fig, ax = plt.subplots()
+    _, ax = plt.subplots()
     with pytest.raises(ValueError, match=r"have no data"):
         add_season_period(ax=ax)
 

@@ -313,9 +313,12 @@ def add_season_period(
         msg = "Axes have no data"
         raise ValueError(msg)
 
+    patches = ax.patches
+
     bins = date_range(
-        start=Timestamp(ax.get_xlim()[0], unit="D"),
-        end=Timestamp(ax.get_xlim()[1], unit="D"),
+        start=Timestamp(ax.get_xlim()[0], unit="D").round("1ms"),
+        end=Timestamp(ax.get_xlim()[1], unit="D").round("1ms"),
+        freq=Timedelta(patches[0].get_width(), "D").round("1ms"),
     )
 
     season_colors = {
@@ -459,7 +462,7 @@ def get_count(df: DataFrame, bin_size: Timedelta | BaseOffset) -> DataFrame:
 
 
 def get_labels_and_annotators(df: DataFrame) -> tuple[list, list]:
-    """Extract and align annotation labels and annotators from a DataFrame.
+    """Extract and align annotation labels and annotators from an APLOSE DataFrame.
 
     If only one label is present, it is duplicated to match the number of annotators.
     Similarly, if one annotator is present, it is duplicated to match the labels.
