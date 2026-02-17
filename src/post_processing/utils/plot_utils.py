@@ -31,7 +31,7 @@ from post_processing.utils.core_utils import (
     get_labels_and_annotators,
     get_sun_times,
     get_time_range_and_bin_size,
-    timedelta_to_str,
+    timedelta_to_str, round_begin_end_timestamps,
 )
 from post_processing.utils.filtering_utils import (
     filter_by_annotator,
@@ -99,9 +99,11 @@ def histo(
     color = kwargs.get("color", False)
     season = kwargs.get("season", False)
     effort = kwargs.get("effort", False)
-    lat, _ = kwargs.get("coordinates")
+    lat, lon = kwargs.get("coordinates")
 
     bin_size_str = get_bin_size_str(bin_size)
+
+    begin, end, bin_size = round_begin_end_timestamps(list(df.index), bin_size)
 
     color = color or get_colors(df)
 
@@ -139,6 +141,7 @@ def histo(
     ax.set_ylabel(f"Detections ({timedelta_to_str(time_bin)})")
     ax.set_xlabel(f"Bin size ({bin_size_str})")
     set_plot_title(ax, annotators, labels)
+    ax.set_xlim(begin, end)
 
     if effort:
         shade_no_effort(
