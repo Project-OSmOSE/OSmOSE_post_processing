@@ -3,23 +3,24 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 import numpy as np
-from numpy import ndarray
-from pandas import DataFrame, Series, Timedelta, Timestamp, date_range
+from pandas import DataFrame, DatetimeIndex, Timedelta
 
-from post_processing.utils.filtering_utils import intersection_or_union
-
-if TYPE_CHECKING:
-    from post_processing.dataclass.recording_period import RecordingPeriod
+from post_processing.utils.core_utils import get_count
+from post_processing.utils.filtering_utils import (
+    get_annotators,
+    get_labels,
+    get_max_time,
+    intersection_or_union,
+)
 
 
 def detection_perf(
     df: DataFrame,
-    timestamps: list[Timestamp] | None = None,
     *,
     ref: tuple[str, str],
+    time: DatetimeIndex | None = None,
 ) -> tuple[float, float, float]:
     """Compute the performance metrics for detection.
 
@@ -32,8 +33,8 @@ def detection_perf(
         APLOSE formatted detection/annotation DataFrame
     ref: tuple[str, str]
         Tuple of annotator/detector pairs.
-    timestamps: list[Timestamp]
-        A list of Timestamps to base the computation on.
+    time: DatetimeIndex
+        DatetimeIndex from a specified beginning to end
 
     Returns
     -------
@@ -42,48 +43,32 @@ def detection_perf(
     f_score: float
 
     """
-    annotators = df["annotator"].unique().tolist()
+    annotators = get_annotators(df)
     if len(annotators) != 2:  # noqa: PLR2004
         msg = f"Two annotators needed, DataFrame contains {len(annotators)} annotators"
         raise ValueError(msg)
 
-    selected_annotator1, selected_label1 = ref
+    labels = get_labels(df)
 
-    if not timestamps:
-        timestamps = [
-            ts.timestamp()
-            for ts in date_range(
-                start=df["start_datetime"].min(),
-                end=df["start_datetime"].max(),
-                freq=str(df["end_time"].max()) + "s",
-            )
-        ]
-    else:
-        timestamps = [ts.timestamp() for ts in timestamps]
+    timebin = Timedelta(get_max_time(df), "s")
+    df_count = get_count(df, timebin, time)
 
-    # df1 - REFERENCE
-    selected_annotations1 = df[
-        (df["annotator"] == selected_annotator1) & (df["annotation"] == selected_label1)
-    ]
-    if selected_annotations1.empty:
-        msg = f"No detection found for {selected_annotator1}/{selected_label1}"
+    # reference annotator and label
+    annotator1, label1 = ref
+    annotations1 = df[(df["annotator"] == annotator1) & (df["annotation"] == label1)]
+    if annotations1.empty:
+        msg = f"No detection found for {annotator1}/{label1}"
         raise ValueError(msg)
+    vec1 = df_count[f"{label1}-{annotator1}"]
 
-    vec1 = _map_datetimes_to_vector(df=selected_annotations1, timestamps=timestamps)
-
-    # df2
-    labels = df["annotation"].unique().tolist()
-    selected_annotator2 = next(ant for ant in annotators if ant != selected_annotator1)
-    selected_label2 = (
-        next(lbl for lbl in labels if lbl != selected_label1)
+    # second annotator and label
+    annotator2 = next(ant for ant in annotators if ant != annotator1)
+    label2 = (
+        next(lbl for lbl in labels if lbl != label1)
         if len(labels) == 2  # noqa: PLR2004
-        else selected_label1
+        else label1
     )
-    selected_annotations2 = df[
-        (df["annotator"] == selected_annotator2) & (df["annotation"] == selected_label2)
-    ]
-
-    vec2 = _map_datetimes_to_vector(selected_annotations2, timestamps)
+    vec2 = df_count[f"{label2}-{annotator2}"]
 
     # metrics computation
     confusion_matrix = {
@@ -106,8 +91,8 @@ def detection_perf(
         raise ValueError(msg)
 
     _log_detection_results(
-        selection1=(selected_annotator1, selected_label1),
-        selection2=(selected_annotator2, selected_label2),
+        selection1=(annotator1, label1),
+        selection2=(annotator2, label2),
         matrix=confusion_matrix,
         df=df,
     )
@@ -168,60 +153,3 @@ def _log_detection_results(
         f"{'Intersection:':<25}{len(intersection_or_union(df, 'intersection')):>25.0f}\n"
     )
     logging.info(msg_result)
-
-
-def _map_datetimes_to_vector(df: DataFrame, timestamps: list[int]) -> ndarray:
-    """Map datetime ranges to a binary vector indicating overlap with timestamp bins.
-
-    Parameters
-    ----------
-    df : DataFrame
-        APLOSE-formatted DataFrame.
-    timestamps : list of int
-        List of UNIX timestamps representing bin start times.
-
-    Returns
-    -------
-    ndarray
-        Binary array (0/1) where 1 indicates overlap with a bin.
-
-    """
-    starts = df["start_datetime"].astype("int64") // 10**9
-    ends = df["end_datetime"].astype("int64") // 10**9
-    timebin = int(df["end_time"].iloc[0])  # duration in seconds
-
-    timestamps = np.array(timestamps)
-    ts_start = timestamps
-    ts_end = timestamps + timebin
-
-    vec = np.zeros(len(timestamps), dtype=int)
-
-    for start, end in zip(starts, ends, strict=False):
-        overlap = (ts_start < end) & (ts_end > start)
-        vec[overlap] = 1
-
-    return vec
-
-
-def normalize_counts_by_effort(
-    counts: DataFrame,
-    effort: RecordingPeriod,
-    time_bin: Timedelta,
-) -> DataFrame:
-    """Normalize detection counts given the observation effort."""
-    timebin_origin = effort.timebin_origin
-    effort_series = effort.counts
-    effort_intervals = effort_series.index
-    effort_series.index = [interval.left for interval in effort_series.index]
-    for col in counts.columns:
-        effort_ratio = effort_series * (timebin_origin / time_bin)
-        effort_ratio = Series(
-            np.where((effort_ratio > 0) & (effort_ratio < 1), 1.0, effort_ratio),
-            index=effort_series.index,
-            name=effort_series.name,
-        )
-        counts[f"{col}"] = (counts[col] / effort_ratio.reindex(counts[col].index)).clip(
-            upper=1
-        )
-        effort_series.index = effort_intervals
-    return counts

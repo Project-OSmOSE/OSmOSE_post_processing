@@ -12,7 +12,14 @@ from typing import TYPE_CHECKING
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
-from pandas import DataFrame, Series, Timedelta, Timestamp, concat, date_range
+from pandas import (
+    DataFrame,
+    Series,
+    Timedelta,
+    Timestamp,
+    concat,
+    date_range,
+)
 from pandas.tseries import offsets
 
 from post_processing.dataclass.detection_filter import DetectionFilter
@@ -296,27 +303,21 @@ class DataAplose:
 
     def detection_perf(
         self,
-        annotators: tuple[str, str],
-        labels: tuple[str, str],
-        timestamps: list[Timestamp] | None = None,
+        annotators: tuple[str, str] | list[str],
+        labels: tuple[str, str] | list[str],
     ) -> tuple[float, float, float]:
-        """Compute performances metrics for detection.
+        """Compute performance metrics for detection.
 
-        Performances are computed with a reference annotator in
-        comparison with a second annotator/detector.
-        Precision and recall are computed in regard
-        with a reference annotator/label pair.
+        Precision and recall are computed in regard to a reference annotator/label pair.
 
         Parameters
         ----------
         annotators: [str, str]
             List of the two annotators to compare.
-            First annotator is chosen as reference.
+            The first annotator is chosen as a reference.
         labels: [str, str]
             List of the two labels to compare.
-            First label is chosen as reference.
-        timestamps: list[Timestamp], optional
-            A list of Timestamps to base the computation on.
+            The first label is chosen as a reference.
 
         Returns
         -------
@@ -334,10 +335,16 @@ class DataAplose:
         if isinstance(labels, str):
             labels = [labels]
         ref = (annotators[0], labels[0])
+
+        if len(set(df_filtered["end_time"])) > 1:
+            msg = "Multiple time bins detected in DataFrame."
+            raise ValueError(msg)
+        timebin = Timedelta(df_filtered["end_time"].iloc[0], "s")
+
         return detection_perf(
             df=df_filtered,
             ref=ref,
-            timestamps=timestamps,
+            time=date_range(self.begin, self.end, freq=timebin),
         )
 
     def plot(

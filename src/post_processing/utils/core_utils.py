@@ -7,11 +7,8 @@ from typing import TYPE_CHECKING, Any
 
 import astral
 import easygui
-import numpy as np
 from astral.sun import sunrise, sunset
 from matplotlib import pyplot as plt
-from osekit.config import TIMESTAMP_FORMAT_AUDIO_FILE
-from osekit.utils.timestamp_utils import strftime_osmose_format, strptime_from_text
 from pandas import (
     DataFrame,
     DatetimeIndex,
@@ -24,15 +21,6 @@ from pandas import (
 )
 from pandas.tseries import offsets
 from pandas.tseries.offsets import BaseOffset
-
-from post_processing.utils.filtering_utils import (
-    get_annotators,
-    get_dataset,
-    get_labels,
-    get_max_freq,
-    get_max_time,
-    get_timezone,
-)
 
 if TYPE_CHECKING:
     from datetime import tzinfo
@@ -134,16 +122,16 @@ def get_sun_times(
 
         # Convert sunrise and sunset to decimal hours
         h_sunrise.append(
-            dt_sunrise.hour +
-            dt_sunrise.minute / 60 +
-            dt_sunrise.second / 3600 +
-            dt_sunrise.microsecond / 3_600_000_000,
+            dt_sunrise.hour
+            + dt_sunrise.minute / 60
+            + dt_sunrise.second / 3600
+            + dt_sunrise.microsecond / 3_600_000_000,
         )
         h_sunset.append(
-            dt_sunset.hour +
-            dt_sunset.minute / 60 +
-            dt_sunset.second / 3600 +
-            dt_sunset.microsecond / 3_600_000_000,
+            dt_sunset.hour
+            + dt_sunset.minute / 60
+            + dt_sunset.second / 3600
+            + dt_sunset.microsecond / 3_600_000_000,
         )
 
     return h_sunrise, h_sunset
@@ -193,83 +181,6 @@ def get_coordinates() -> tuple:
     lon = float(lon.strip())
 
     return lat, lon
-
-
-def add_weak_detection(
-    df: DataFrame,
-    datetime_format: str = TIMESTAMP_FORMAT_AUDIO_FILE,
-    max_time: Timedelta | None = None,
-    max_freq: float | None = None,
-) -> DataFrame:
-    """Add weak detections APLOSE formatted DataFrame with only strong detections.
-
-    Parameters
-    ----------
-    df: DataFrame
-        An APLOSE formatted DataFrame.
-    datetime_format: str
-        A string corresponding to the datetime format in the `filename` column
-    max_time: Timedelta
-        Size of the weak detections
-    max_freq: float
-        Height of the weak detections
-
-    """
-    annotators = get_annotators(df)
-    labels = get_labels(df)
-    dataset_id = get_dataset(df)
-    tz = get_timezone(df)
-
-    if not max_freq:
-        max_freq = get_max_freq(df)
-    if not max_time:
-        max_time = Timedelta(get_max_time(df), "s")
-
-    df["start_datetime"] = [
-        strftime_osmose_format(start) for start in df["start_datetime"]
-    ]
-    df["end_datetime"] = [
-        strftime_osmose_format(stop) for stop in df["end_datetime"]
-    ]
-
-    for ant in annotators:
-        for lbl in labels:
-            filenames = (
-                df[(df["annotator"] == ant) & (df["annotation"] == lbl)]["filename"]
-                .drop_duplicates()
-                .tolist()
-            )
-            for f in filenames:
-                test = df[(df["filename"] == f) & (df["annotation"] == lbl)]["type"]
-                if test.any():
-                    start_datetime = strptime_from_text(
-                        text=f,
-                        datetime_template=datetime_format,
-                    )
-
-                    if not start_datetime.tz:
-                        start_datetime = tz.localize(start_datetime)
-
-                    end_datetime = start_datetime + Timedelta(max_time, unit="s")
-                    new_line = [
-                        dataset_id,
-                        f,
-                        0,
-                        max_time.total_seconds(),
-                        0,
-                        max_freq,
-                        lbl,
-                        ant,
-                        strftime_osmose_format(start_datetime),
-                        strftime_osmose_format(end_datetime),
-                        "WEAK",
-                    ]
-
-                    if "score" in df.columns:
-                        new_line.append(np.nan)
-                    df.loc[df.index.max() + 1] = new_line
-
-    return df.sort_values(by=["start_datetime", "annotator"]).reset_index(drop=True)
 
 
 def json2df(json_path: Path) -> DataFrame:
@@ -417,7 +328,9 @@ def add_recording_period(
     ax.set_ylim(ax.dataLim.ymin, ax.dataLim.ymax)
 
 
-def get_count(df: DataFrame, bin_size: Timedelta | BaseOffset) -> DataFrame:
+def get_count(
+    df: DataFrame, bin_size: Timedelta | BaseOffset, time: DatetimeIndex | None = None
+) -> DataFrame:
     """Count observations per label and annotator.
 
     This function groups a DataFrame of events into uniform time bins and counts the
@@ -429,6 +342,8 @@ def get_count(df: DataFrame, bin_size: Timedelta | BaseOffset) -> DataFrame:
         APLOSE-formatted DataFrame.
     bin_size : Timedelta | offsets
         Width or frequency of bins.
+    time: DatetimeIndex
+        DatetimeIndex from a specified beginning to end
 
     Returns
     -------
@@ -441,7 +356,7 @@ def get_count(df: DataFrame, bin_size: Timedelta | BaseOffset) -> DataFrame:
         msg = "`df` contains no data"
         raise ValueError(msg)
 
-    datetime_list = list(df["start_datetime"])
+    datetime_list = list(df["start_datetime"]) if time is None else time.to_list()
 
     bins, bin_size = get_time_range_and_bin_size(datetime_list, bin_size)
 
@@ -512,8 +427,9 @@ def get_time_range_and_bin_size(
     bin_size: Timedelta | BaseOffset,
 ) -> tuple[DatetimeIndex, Timedelta]:
     """Return time vector given a bin size."""
-    if (not isinstance(timestamp_list, list) or
-            not all(isinstance(ts, Timestamp) for ts in timestamp_list)):
+    if not isinstance(timestamp_list, list) or not all(
+        isinstance(ts, Timestamp) for ts in timestamp_list
+    ):
         msg = "`timestamp_list` must be a list[Timestamp]"
         raise TypeError(msg)
 
@@ -549,7 +465,7 @@ def round_begin_end_timestamps(
 
     if isinstance(bin_size, Timedelta):
         start = min(timestamp_list).floor(bin_size)
-        end = max(timestamp_list).ceil(bin_size)
+        end = max(timestamp_list).floor(bin_size) + bin_size
         return start, end, bin_size
 
     if isinstance(bin_size, BaseOffset):
