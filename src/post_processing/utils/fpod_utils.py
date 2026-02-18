@@ -67,10 +67,7 @@ def pod2aplose(
         An APLOSE formatted DataFrame.
 
     """
-    fpod_start_dt = [
-        tz.localize(entry)
-        for entry in df["Datetime"]
-    ]
+    fpod_start_dt = [tz.localize(entry) for entry in df["Datetime"]]
 
     data = {
         "dataset": [dataset_name] * len(df),
@@ -134,7 +131,8 @@ def load_pod_folder(
         df = read_csv(
             file,
             sep=sep,
-        )
+            dtype={"microsec": "Int32"},
+        ).dropna()
 
         df["Deploy"] = file.stem.strip().lower().replace(" ", "_")
         all_data.append(df)
@@ -154,8 +152,7 @@ def _process_csv_data(data: DataFrame) -> DataFrame:
     """Process CSV data with filtering and datetime conversion."""
     data_filtered = _filter_csv_data(data)
     data_filtered["Datetime"] = [
-        strptime_from_text(dt, "%d/%m/%Y %H:%M")
-        for dt in data_filtered["ChunkEnd"]
+        strptime_from_text(dt, "%d/%m/%Y %H:%M") for dt in data_filtered["ChunkEnd"]
     ]
     return data_filtered.sort_values(by=["Datetime"]).reset_index(drop=True)
 
@@ -183,26 +180,23 @@ def get_feeding_buzz_datetime(row: Series) -> Timestamp:
 
     The conversion method differs based on the POD type.
     """
+    exceptions = []
     try:
         return (
-            to_datetime("1900-01-01")
-            + to_timedelta(row["Minute"], unit="min")
-            + to_timedelta(row["microsec"] / 1e6, unit="sec")
-            - to_timedelta(2, unit="D")
+            Timestamp("1899-12-30")
+            + Timedelta(minutes=row["Minute"])
+            + Timedelta(microseconds=row["microsec"])
         )
-    except (KeyError, TypeError, ValueError):
-        pass
+    except (KeyError, TypeError, ValueError) as e:
+        exceptions.append(e)
 
     try:
-        return strptime_from_text(
-            f"{row['Minute']}:{int(str(row['microsec'])[0]):02d}.{int(str(row['microsec'])[1:])}",
-            "%-d/%-m/%Y %H:%M:%S.%f",
-        )
-    except (KeyError, TypeError, ValueError):
-        pass
+        return Timestamp(row["Minute"]) + Timedelta(microseconds=row["microsec"])
+    except (KeyError, TypeError, ValueError) as e:
+        exceptions.append(e)
 
     msg = "Could not convert feeding buzz timestamp."
-    raise ValueError(msg)
+    raise ExceptionGroup(msg, exceptions)
 
 
 def process_feeding_buzz(
@@ -231,27 +225,40 @@ def process_feeding_buzz(
     df["Datetime"] = df["Datetime"].dt.floor("min")
 
     if species.lower() == "delphinid":  # Herzing et al., 2014
-        df["Buzz"] = df["ICI"].between(
-            Timedelta(0),
-            Timedelta(seconds=0.02),
-        ).astype(int)
+        df["Buzz"] = (
+            df["ICI"]
+            .between(
+                Timedelta(0),
+                Timedelta(seconds=0.02),
+            )
+            .astype(int)
+        )
     elif species.lower() == "porpoise":  # Nuuttila et al., 2013
-        df["Buzz"] = df["ICI"].between(
-            Timedelta(0),
-            Timedelta(seconds=0.01),
-        ).astype(int)
+        df["Buzz"] = (
+            df["ICI"]
+            .between(
+                Timedelta(0),
+                Timedelta(seconds=0.01),
+            )
+            .astype(int)
+        )
     elif species.lower() == "commerson":  # Reyes Reyes et al., 2015
-        df["Buzz"] = df["ICI"].between(
-            Timedelta(0),
-            Timedelta(seconds=0.005),
-        ).astype(int)
+        df["Buzz"] = (
+            df["ICI"]
+            .between(
+                Timedelta(0),
+                Timedelta(seconds=0.005),
+            )
+            .astype(int)
+        )
     else:
         msg = "This species is not supported"
         raise ValueError(msg)
 
     df_buzz = df.groupby(["Datetime"])["Buzz"].sum().reset_index()
     df_buzz["Foraging"] = to_numeric(
-        df_buzz["Buzz"] != 0, downcast="integer",
+        df_buzz["Buzz"] != 0,
+        downcast="integer",
     ).astype(int)
 
     return df_buzz
@@ -280,13 +287,26 @@ def process_timelost(df: DataFrame, threshold: int = 0) -> DataFrame:
 
     df["Datetime"] = df["Datetime"].dt.floor("h")
     cols_to_drop = [
-        col for col in df.columns if col not in {
-            "File", "Datetime", "Temp", "Angle", "%TimeLost", "Deploy",
+        col
+        for col in df.columns
+        if col
+        not in {
+            "File",
+            "Datetime",
+            "Temp",
+            "Angle",
+            "%TimeLost",
+            "Deploy",
         }
     ]
-    return df[df["%TimeLost"] <= threshold].drop(
-        columns=cols_to_drop,
-    ).sort_values(["Datetime"]).reset_index(drop=True)
+    return (
+        df[df["%TimeLost"] <= threshold]
+        .drop(
+            columns=cols_to_drop,
+        )
+        .sort_values(["Datetime"])
+        .reset_index(drop=True)
+    )
 
 
 def create_matrix(
@@ -310,14 +330,12 @@ def create_matrix(
     Give a matrix of the data in [agg_cols] grouped by [group_cols].
 
     """
-    matrix = df.groupby(group_cols).agg({
-        col: ["mean", "std"] for col in agg_cols
-    })
+    matrix = df.groupby(group_cols).agg({col: ["mean", "std"] for col in agg_cols})
     matrix = matrix.reset_index()
 
-    matrix.columns = group_cols + [f"{col}_{stat}"
-                                    for col in agg_cols
-                                    for stat in ["mean", "std"]]
+    matrix.columns = group_cols + [
+        f"{col}_{stat}" for col in agg_cols for stat in ["mean", "std"]
+    ]
     return matrix
 
 
@@ -348,7 +366,8 @@ def percent_calc(
 
     # Aggregate and compute metrics
     df = (
-        data.groupby(group_cols)
+        data
+        .groupby(group_cols)
         .agg(
             {
                 "DPh": "sum",
@@ -364,7 +383,8 @@ def percent_calc(
     df["%DPh"] = df["DPh"] * 100 / df["Day"]
     df["FBR"] = df.apply(
         lambda row: (row["Foraging"] * 100 / row["DPM"]) if row["DPM"] > 0 else 0,
-        axis=1)
+        axis=1,
+    )
     df["%buzzes"] = df["Foraging"] * 100 / (df["Day"] * 60)
     return df
 
@@ -582,7 +602,9 @@ def week_percent(df: DataFrame, metric: str) -> None:
                 facecolor="lightgray",
                 edgecolor="gray",
                 alpha=0.3,
-                label="Pas de données"))
+                label="Pas de données",
+            )
+        )
 
     fig.legend(
         handles=legend_elements,
@@ -870,7 +892,8 @@ def hist_mean_m(
             alpha=0.8,
             edgecolor="black",
             linewidth=0.5,
-            label=f"Site {site}")
+            label=f"Site {site}",
+        )
 
         ax.set_title(f"{site}", fontsize=12)
         ax.set_ylim(0, max_value * 1.1)
@@ -900,9 +923,7 @@ def hist_mean_m(
             for _, bar in enumerate(ax.patches):
                 bar.set_hatch("/")
 
-    fig.suptitle(
-        f"{title_suffix or metric_mean} per month",
-        fontsize=16)
+    fig.suptitle(f"{title_suffix or metric_mean} per month", fontsize=16)
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
@@ -1008,12 +1029,13 @@ def hist_mean_s(
 
     # Create bars
     ax.bar(
-    x=x_pos,
-    height=plot_data[metric_mean],
-    color=[site_colors.get(site, "gray") for site in plot_data["site.name"]],
-    alpha=0.8,
-    edgecolor="black",
-    linewidth=0.5)
+        x=x_pos,
+        height=plot_data[metric_mean],
+        color=[site_colors.get(site, "gray") for site in plot_data["site.name"]],
+        alpha=0.8,
+        edgecolor="black",
+        linewidth=0.5,
+    )
 
     # Add hatching if requested
     if metric_mean in {"%buzzes_mean", "FBR_mean"}:
@@ -1037,8 +1059,7 @@ def hist_mean_s(
 
     ax.set_xticks(x_pos)
     ax.set_xticklabels(plot_data["site.name"])
-    ax.set_title(f"{title_suffix or metric_mean} per site",
-                 fontsize=12)
+    ax.set_title(f"{title_suffix or metric_mean} per site", fontsize=12)
     ax.set_ylabel(y_lab or metric_mean, fontsize=10)
     ax.set_xlabel("Site", fontsize=10)
 
