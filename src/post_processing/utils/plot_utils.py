@@ -12,7 +12,7 @@ import numpy as np
 from matplotlib import dates as mdates
 from matplotlib.dates import num2date
 from matplotlib.patches import Patch
-from numpy import ceil, histogram, polyfit
+from numpy import ceil, polyfit
 from pandas import (
     DataFrame,
     DatetimeIndex,
@@ -24,7 +24,6 @@ from pandas import (
 )
 from pandas.tseries import frequencies
 from scipy.stats import pearsonr
-from seaborn import scatterplot
 
 from post_processing.utils.core_utils import (
     add_season_period,
@@ -32,8 +31,7 @@ from post_processing.utils.core_utils import (
     get_labels_and_annotators,
     get_sun_times,
     get_time_range_and_bin_size,
-    round_begin_end_timestamps,
-    timedelta_to_str,
+    timedelta_to_str, round_begin_end_timestamps,
 )
 from post_processing.utils.filtering_utils import (
     filter_by_annotator,
@@ -75,18 +73,18 @@ def histo(
         - legend: bool
             Whether to show the legend.
         - color: str | list[str]
-            Colour or list of colours for the histogram bars.
-            If not provided, default colours will be used.
+            Color or list of colors for the histogram bars.
+            If not provided, default colors will be used.
         - season: bool
             Whether to show the season.
         - coordinates: tuple[float, float]
             The coordinates of the plotted detections.
         - effort: RecordingPeriod
             Object corresponding to the observation effort.
-            If provided, data will be normalised by observation effort.
+            If provided, data will be normalized by observation effort.
 
     """
-    labels, annotators = zip(*[col.rsplit("-", 1) for col in df.columns], strict=False)
+    labels, annotators = zip(*[col.rsplit("-", 1) for col in df.columns], strict=True)
     labels = list(labels)
     annotators = list(annotators)
 
@@ -122,7 +120,7 @@ def histo(
         offset = i * bar_width.total_seconds() / 86400
 
         bar_kwargs = {
-            "width": bar_width.total_seconds() / 86400,
+            "width": (bar_width.total_seconds() / 86400),
             "align": "edge",
             "edgecolor": "black",
             "color": color[i],
@@ -153,8 +151,8 @@ def histo(
         )
 
     if season:
-        if lat is None or lon is None:
-            get_coordinates()
+        if lat is None:
+            lat, _ = get_coordinates()
         add_season_period(ax, northern=lat >= 0)
 
 
@@ -469,77 +467,81 @@ def _wrap_xtick_labels(ax: plt.Axes, max_chars: int = 10) -> None:
     ax.set_xticklabels(new_labels, rotation=0)
 
 
-def agreement(
+def plot_annotator_agreement(
     df: DataFrame,
     bin_size: Timedelta | BaseOffset,
-    ax: plt.Axes,
+    ax: Axes,
 ) -> None:
-    """Compute and visualise agreement between two annotators.
+    """Plot inter-annotator agreement with linear regression.
 
-    This function compares annotation timestamps from two annotators over a time range.
-    It also fits and plots a linear regression line and displays the coefficient
-    of determination (R²) on the plot.
+    Creates a scatter plot comparing annotation counts between two annotators
+    across time bins. Fits a linear regression line and displays the coefficient
+    of determination (R²) in the legend.
 
     Parameters
     ----------
     df : DataFrame
-        APLOSE-formatted DataFrame.
-        It must contain The annotations of two annotators.
-
+        APLOSE-formatted DataFrame containing annotations from exactly two annotators.
     bin_size : Timedelta | BaseOffset
-        The size of each time bin for aggregating annotation timestamps.
+        Size of each time bin for aggregating annotation timestamps.
+    ax : plt.Axes
+        Matplotlib axes object where the scatter plot and regression line will be drawn.
 
-    ax : matplotlib.axes.Axes
-        Matplotlib axes object where the scatterplot and regression line will be drawn.
+    Notes
+    -----
+    The function modifies the provided axes object in place and does not return a value.
+    Each point in the scatter plot represents the annotation counts from both annotators
+    within a single time bin.
+
+    Examples
+    --------
+    >>> fig, ax = plt.subplots()
+    >>> plot_annotator_agreement(df, Timedelta(hours=1), ax)
 
     """
-    labels, annotators = get_labels_and_annotators(df)
+    labels, annotators = zip(*[col.rsplit("-", 1) for col in df.columns], strict=True)
+    labels = list(labels)
+    annotators = list(annotators)
 
-    datetimes = [
-        list(
-            df[
-                (df["annotator"] == annotators[i]) & (df["annotation"] == labels[i])
-                ]["start_datetime"],
-        )
-        for i in range(2)
-    ]
-
-    # scatter plot
-    n_annot_max = bin_size.total_seconds() / df["end_time"].iloc[0]
-
-    freq = (
-        bin_size if isinstance(bin_size, Timedelta) else str(bin_size.n) + bin_size.name
+    ax.scatter(
+        df[f"{labels[0]}-{annotators[0]}"],
+        df[f"{labels[1]}-{annotators[1]}"],
+        zorder=3,
     )
-
-    bins = date_range(
-        start=df["start_datetime"].min().floor(bin_size),
-        end=df["start_datetime"].max().ceil(bin_size),
-        freq=freq,
+    coefficients = polyfit(
+        df[f"{labels[0]}-{annotators[0]}"],
+        df[f"{labels[1]}-{annotators[1]}"],
+        deg=1,
     )
-
-    df_hist = (
-        DataFrame(
-            {
-                annotators[0]: histogram(datetimes[0], bins=bins)[0],
-                annotators[1]: histogram(datetimes[1], bins=bins)[0],
-            },
-        )
-        / n_annot_max
-    )
-
-    scatterplot(data=df_hist, x=annotators[0], y=annotators[1], ax=ax)
-
-    coefficients = polyfit(df_hist[annotators[0]], df_hist[annotators[1]], 1)
     poly = np.poly1d(coefficients)
-    ax.plot(df_hist[annotators[0]], poly(df_hist[annotators[0]]), lw=1)
+    r, _ = pearsonr(
+        df[f"{labels[0]}-{annotators[0]}"],
+        df[f"{labels[1]}-{annotators[1]}"],
+    )  # R²
+    ax.plot(
+        sorted(df[f"{labels[0]}-{annotators[0]}"]),
+        poly(sorted(df[f"{labels[0]}-{annotators[0]}"])),
+        lw=0.5,
+        color="k",
+        alpha=0.5,
+        linestyle="-",
+        label=f"R²={r**2:.2f}",
+        zorder=2,
+    )
 
-    ax.set_xlabel(f"{annotators[0]}\n{labels[0]}")
-    ax.set_ylabel(f"{annotators[1]}\n{labels[1]}")
-    ax.grid(linestyle="-", linewidth=0.2)
-
-    # Pearson correlation (R²)
-    r, _ = pearsonr(df_hist[annotators[0]], df_hist[annotators[1]])
-    ax.text(0.05, 0.85, f"R² = {r**2:.2f}", transform=ax.transAxes)
+    ax.set_xlabel(f"""annotator: {annotators[0]}\nlabel: {labels[0]}""")
+    ax.set_ylabel(f"""annotator: {annotators[1]}\nlabel: {labels[1]}""")
+    ax.grid(
+        linestyle="-",
+        linewidth=0.2,
+        zorder=1,
+    )
+    ax.legend(
+        loc="upper left",
+        frameon=True,
+        framealpha=1,
+        fontsize=8,
+    )
 
 
 def timeline(

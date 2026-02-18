@@ -7,8 +7,10 @@ import csv
 import datetime
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pytz
-from osekit.utils.timestamp_utils import strptime_from_text
+from osekit.config import TIMESTAMP_FORMAT_AUDIO_FILE
+from osekit.utils.timestamp_utils import strftime_osmose_format, strptime_from_text
 from pandas import (
     DataFrame,
     Timedelta,
@@ -18,6 +20,8 @@ from pandas import (
     read_csv,
     to_datetime,
 )
+
+from post_processing.utils.core_utils import get_count
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -41,8 +45,10 @@ def find_delimiter(file: Path) -> str:
             dialect = sniffer.sniff(sample)
 
             if dialect.delimiter not in allowed_delimiters:
-                msg = (f"Could not determine delimiter for '{file}': "
-                       f"unsupported delimiter '{dialect.delimiter}'")
+                msg = (
+                    f"Could not determine delimiter for '{file}': "
+                    f"unsupported delimiter '{dialect.delimiter}'"
+                )
                 raise ValueError(msg)
 
             return dialect.delimiter
@@ -259,11 +265,12 @@ def read_dataframe(file: Path, rows: int | None = None) -> DataFrame:
     """Read an APLOSE-formatted CSV file into a DataFrame."""
     delimiter = find_delimiter(file)
     return (
-        read_csv(file,
-                 sep=delimiter,
-                 parse_dates=["start_datetime", "end_datetime"],
-                 nrows=rows,
-                 )
+        read_csv(
+            file,
+            sep=delimiter,
+            parse_dates=["start_datetime", "end_datetime"],
+            nrows=rows,
+        )
         .drop_duplicates()
         .dropna(subset=["annotation"])
         .sort_values(by=["start_datetime", "end_datetime"])
@@ -273,12 +280,18 @@ def read_dataframe(file: Path, rows: int | None = None) -> DataFrame:
 
 def get_annotators(df: DataFrame) -> list[str]:
     """Return the annotator list of APLOSE DataFrame."""
-    return sorted(set(df["annotator"]))
+    if len(df) == 1:
+        return df["annotator"][0]
+    annotators = sorted(set(df["annotator"]))
+    return annotators if len(annotators) > 1 else annotators[0]
 
 
-def get_labels(df: DataFrame) -> list[str]:
+def get_labels(df: DataFrame) -> str | list[str]:
     """Return the label list of APLOSE DataFrame."""
-    return sorted(set(df["annotation"]))
+    if len(df) == 1:
+        return df["annotation"][0]
+    labels = sorted(set(df["annotation"]))
+    return labels if len(labels) > 1 else labels[0]
 
 
 def get_max_freq(df: DataFrame) -> float:
@@ -293,6 +306,8 @@ def get_max_time(df: DataFrame) -> float:
 
 def get_dataset(df: DataFrame) -> str | list[str]:
     """Return dataset list  of APLOSE DataFrame."""
+    if len(df) == 1:
+        return df["dataset"][0]
     datasets = sorted(set(df["dataset"]))
     return datasets if len(datasets) > 1 else datasets[0]
 
@@ -327,8 +342,9 @@ def get_canonical_tz(tz: datetime.tzinfo) -> pytz.tzinfo.BaseTzInfo:
     raise TypeError(msg)
 
 
-def get_timezone(df: DataFrame)\
-        -> pytz.tzinfo.BaseTzInfo | list[pytz.tzinfo.BaseTzInfo]:
+def get_timezone(
+    df: DataFrame,
+) -> pytz.tzinfo.BaseTzInfo | list[pytz.tzinfo.BaseTzInfo]:
     """Return timezone(s) from APLOSE DataFrame.
 
     Parameters
@@ -476,7 +492,10 @@ def _process_annotator_label_pair(
 
     # Build vectors
     filename_vector = _build_filename_vector(
-        time_vector, ts_detect_beg, timestamp_audio, filenames,
+        time_vector,
+        ts_detect_beg,
+        timestamp_audio,
+        filenames,
     )
     detect_vec = _build_detection_vector(time_vector, ts_detect_beg, ts_detect_end)
 
@@ -492,7 +511,13 @@ def _process_annotator_label_pair(
         return None
 
     return _create_result_dataframe(
-        file_vector, start_datetime, timebin_new, max_freq, dataset, label, annotator,
+        file_vector,
+        start_datetime,
+        timebin_new,
+        max_freq,
+        dataset,
+        label,
+        annotator,
     )
 
 
@@ -538,11 +563,20 @@ def reshape_timebin(
     df = _normalize_timezones(df)
 
     # Process each annotator-label combination
+    annotators = [annotators] if isinstance(annotators, str) else annotators
+    labels = [labels] if isinstance(labels, str) else labels
+
     results = []
     for ant in annotators:
         for lbl in labels:
             result = _process_annotator_label_pair(
-                df, ant, lbl, timebin_new, timestamp_audio, max_freq, dataset,
+                df,
+                ant,
+                lbl,
+                timebin_new,
+                timestamp_audio,
+                max_freq,
+                dataset,
             )
             if result is not None:
                 results.append(result)
@@ -572,10 +606,11 @@ def get_filename_timestamps(df: DataFrame, date_parser: str) -> list[Timestamp]:
     """
     tz = get_timezone(df)
     timestamps = [
-    strptime_from_text(
-        ts,
-        datetime_template=date_parser,
-    ) for ts in df["filename"]
+        strptime_from_text(
+            ts,
+            datetime_template=date_parser,
+        )
+        for ts in df["filename"]
     ]
 
     if all(t.tz is None for t in timestamps):
@@ -621,16 +656,92 @@ def load_detections(filters: DetectionFilter) -> DataFrame:
     df = filter_by_freq(df, filters.f_min, filters.f_max)
     df = filter_by_score(df, filters.score)
     filename_ts = get_filename_timestamps(df, filters.filename_format)
-    df = reshape_timebin(df,
-                         timebin_new=filters.timebin_new,
-                         timestamp_audio=filename_ts,
-                         )
+    df = reshape_timebin(
+        df,
+        timebin_new=filters.timebin_new,
+        timestamp_audio=filename_ts,
+    )
 
     annotators = get_annotators(df)
     if len(annotators) > 1 and filters.user_sel in {"union", "intersection"}:
         df = intersection_or_union(df, user_sel=filters.user_sel)
 
     return df.sort_values(by=["start_datetime", "end_datetime"]).reset_index(drop=True)
+
+
+def add_weak_detection(
+    df: DataFrame,
+    datetime_format: str = TIMESTAMP_FORMAT_AUDIO_FILE,
+    max_time: Timedelta | None = None,
+    max_freq: float | None = None,
+) -> DataFrame:
+    """Add weak detections APLOSE formatted DataFrame with only strong detections.
+
+    Parameters
+    ----------
+    df: DataFrame
+        An APLOSE formatted DataFrame.
+    datetime_format: str
+        A string corresponding to the datetime format in the `filename` column
+    max_time: Timedelta
+        Size of the weak detections
+    max_freq: float
+        Height of the weak detections
+
+    """
+    annotators = get_annotators(df)
+    labels = get_labels(df)
+    dataset_id = get_dataset(df)
+    tz = get_timezone(df)
+
+    if not max_freq:
+        max_freq = get_max_freq(df)
+    if not max_time:
+        max_time = Timedelta(get_max_time(df), "s")
+
+    df["start_datetime"] = [
+        strftime_osmose_format(start) for start in df["start_datetime"]
+    ]
+    df["end_datetime"] = [strftime_osmose_format(stop) for stop in df["end_datetime"]]
+
+    for ant in annotators:
+        for lbl in labels:
+            filenames = (
+                df[(df["annotator"] == ant) & (df["annotation"] == lbl)]["filename"]
+                .drop_duplicates()
+                .tolist()
+            )
+            for f in filenames:
+                test = df[(df["filename"] == f) & (df["annotation"] == lbl)]["type"]
+                if test.any():
+                    start_datetime = strptime_from_text(
+                        text=f,
+                        datetime_template=datetime_format,
+                    )
+
+                    if not start_datetime.tz:
+                        start_datetime = tz.localize(start_datetime)
+
+                    end_datetime = start_datetime + Timedelta(max_time, unit="s")
+                    new_line = [
+                        dataset_id,
+                        f,
+                        0,
+                        max_time.total_seconds(),
+                        0,
+                        max_freq,
+                        lbl,
+                        ant,
+                        strftime_osmose_format(start_datetime),
+                        strftime_osmose_format(end_datetime),
+                        "WEAK",
+                    ]
+
+                    if "score" in df.columns:
+                        new_line.append(np.nan)
+                    df.loc[df.index.max() + 1] = new_line
+
+    return df.sort_values(by=["start_datetime", "annotator"]).reset_index(drop=True)
 
 
 def intersection_or_union(df: DataFrame, user_sel: str) -> DataFrame:
@@ -640,6 +751,14 @@ def intersection_or_union(df: DataFrame, user_sel: str) -> DataFrame:
         msg = "Not enough annotators detected"
         raise ValueError(msg)
 
+    datasets = get_dataset(df)
+    labels = get_labels(df)
+    end_frequency = get_max_freq(df)
+
+    annotators = [annotators] if isinstance(annotators, str) else annotators
+    datasets = [datasets] if isinstance(datasets, str) else datasets
+    labels = [labels] if isinstance(labels, str) else labels
+
     if user_sel == "all":
         return df
 
@@ -647,21 +766,34 @@ def intersection_or_union(df: DataFrame, user_sel: str) -> DataFrame:
         msg = "'user_sel' must be either 'intersection' or 'union'"
         raise ValueError(msg)
 
-    # Count how many annotators marked each (start_datetime, annotation) pair
-    counts = df.groupby(["annotation", "start_datetime"])["annotator"].transform(
-        "nunique",
-    )
+    timebin = Timedelta(df["end_time"].iloc[0], "s")
+    df_count = get_count(df, timebin)
 
     if user_sel == "intersection":
-        df_result = df[counts == len(annotators)]
+        # Keep only time bins where ALL annotators detected something
         annotator_name = " ∩ ".join(annotators)
-    else:  # union
-        df_result = df[counts >= 1]
+        dataset_name = " ∩ ".join(datasets)
+        label_name = " ∩ ".join(labels)
+        mask = (df_count > 0).all(axis=1)
+    else:
+        # Keep only time bins where AT LEAST ONE annotator detected something
         annotator_name = " ∪ ".join(annotators)  # noqa: RUF001
+        dataset_name = " ∪ ".join(datasets)  # noqa: RUF001
+        label_name = " ∪ ".join(labels)  # noqa: RUF001
+        mask = (df_count > 0).any(axis=1)
 
-    return (
-        df_result.drop_duplicates(subset=["annotation", "start_datetime"])
-        .assign(annotator=annotator_name)
-        .sort_values("start_datetime")
-        .reset_index(drop=True)
-    )
+    # Get the selected timestamps
+    selected_times = df_count.index[mask]
+
+    # Filter original df to rows whose start_time falls in selected_times
+    result = df[df["start_datetime"].isin(selected_times)].copy()
+
+    # Drop duplicates keeping one row per timebin
+    result = result.drop_duplicates(subset=["start_datetime"])
+
+    result = result.assign(annotator=annotator_name)
+    result = result.assign(end_frequency=end_frequency)
+    result = result.assign(annotation=label_name)
+    result = result.assign(dataset=dataset_name)
+
+    return result
