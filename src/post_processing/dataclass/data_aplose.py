@@ -55,7 +55,7 @@ default_colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 def _get_locator_from_offset(
     offset: int | Timedelta | BaseOffset,
 ) -> mdates.DateLocator:
-    """Map a pandas offset object to the appropriate matplotlib DateLocator."""
+    """Map a pandas' offset object to the appropriate matplotlib DateLocator."""
     if isinstance(offset, int):
         return mdates.SecondLocator(interval=offset)
 
@@ -106,7 +106,11 @@ class DataAplose:
         Parameters
         ----------
         df: DataFrame
-            APLOSE formatted DataFrame.
+            APLOSE formatted DataFrame
+        begin: Timestamp
+            The start datetime of the data.
+        end: Timestamp
+            The end datetime of the data.
 
         """
         self.df = df.sort_values(
@@ -224,7 +228,7 @@ class DataAplose:
         Raises
         ------
         ValueError
-            If annotator or label are not valid or if filtered Dataframe is empty.
+            If annotator or label are not valid or if the filtered Dataframe is empty.
 
         """
         if isinstance(label, str):
@@ -359,9 +363,10 @@ class DataAplose:
         """Plot filtered annotation data using the specified mode.
 
         Supports multiple plot types depending on the mode:
-          - "histogram": Plots a histogram of annotation data.
-          - "scatter" / "heatmap": Maps detections on a timeline.
-          - "agreement": Plots inter-annotator agreement regression.
+          - "histogram": Plot a histogram of annotation data.
+          - "scatter" / "heatmap": Map hourly detections on a timeline.
+          - "agreement": Plot inter-annotator agreement regression.
+          - "timeline": Plot a timeline of annotation data.
 
         Parameters
         ----------
@@ -472,12 +477,12 @@ class DataAplose:
         *,
         concat: bool = True,
     ) -> DataAplose | list[DataAplose]:
-        """Return a DataAplose object from a yaml file.
+        """Return a DataAplose object from a YAML file.
 
         Parameters
         ----------
         file: Path
-            The path to a yaml configuration file.
+            The path to a YAML configuration file.
         concat: bool
             If set to True, the DataAplose objects will be concatenated.
             If set to False, the DataAplose objects will be returned as a list.
@@ -498,7 +503,7 @@ class DataAplose:
         *,
         concat: bool = False,
     ) -> DataAplose | list[DataAplose]:
-        """Return a DataAplose object from a yaml file.
+        """Return a DataAplose object from a YAML file.
 
         Parameters
         ----------
@@ -568,7 +573,7 @@ class DataAplose:
     def reshape(self, begin: Timestamp = None, end: Timestamp = None) -> DataAplose:
         """Reshape the DataAplose with a new beginning and/or end."""
         if not any([begin, end]):
-            msg = "No begin and end timestamps provided for reshape of DataAplose instance."
+            msg = "No begin/end timestamps provided for reshape of DataAplose instance."
             logging.debug(msg)
             return self
 
