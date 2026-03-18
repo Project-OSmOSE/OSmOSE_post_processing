@@ -16,6 +16,7 @@ from pandas import (
     Timedelta,
     Timestamp,
     concat,
+    cut,
     date_range,
     read_csv,
     to_datetime,
@@ -436,6 +437,7 @@ def _create_result_dataframe(
     dataset: str,
     label: str,
     annotator: str,
+    dpm_count: int,
 ) -> DataFrame:
     """Create result DataFrame for one annotator-label combination."""
     return DataFrame({
@@ -450,6 +452,7 @@ def _create_result_dataframe(
         "start_datetime": start_datetime,
         "end_datetime": [t + timebin_new for t in start_datetime],
         "type": ["WEAK"] * len(file_vector),
+        "dpm_count": dpm_count,
     })
 
 
@@ -510,6 +513,12 @@ def _process_annotator_label_pair(
     if not start_datetime:
         return None
 
+    bins = [*list(time_vector), time_vector[-1] + timebin_new]
+    counts = cut(ts_detect_beg, bins=bins, right=False).value_counts().sort_index()
+    dpm_count = [
+        counts.iloc[i] for i, detected in enumerate(detect_vec) if detected
+    ]
+
     return _create_result_dataframe(
         file_vector,
         start_datetime,
@@ -518,6 +527,7 @@ def _process_annotator_label_pair(
         dataset,
         label,
         annotator,
+        dpm_count,
     )
 
 
