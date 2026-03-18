@@ -24,22 +24,27 @@ from post_processing.utils.filtering_utils import (
     get_max_freq,
     get_max_time,
     get_timezone,
-    intersection_or_union,
     read_dataframe,
     reshape_timebin,
+    intersection_or_union,
 )
+
 
 # %% find delimiter
 
 
-@pytest.mark.parametrize(("delimiter", "rows"), [
-    (",", [["a", "b", "c"], ["1", "2", "3"]]),
-    (";", [["x", "y", "z"], ["4", "5", "6"]]),
-])
-def test_find_delimiter_valid(tmp_path: Path,
-                              delimiter: str,
-                              rows: list[list[str]],
-                              ) -> None:
+@pytest.mark.parametrize(
+    ("delimiter", "rows"),
+    [
+        (",", [["a", "b", "c"], ["1", "2", "3"]]),
+        (";", [["x", "y", "z"], ["4", "5", "6"]]),
+    ],
+)
+def test_find_delimiter_valid(
+    tmp_path: Path,
+    delimiter: str,
+    rows: list[list[str]],
+) -> None:
     file = tmp_path / "test.csv"
     with file.open("w", newline="") as f:
         writer = csv.writer(f, delimiter=delimiter)
@@ -49,7 +54,9 @@ def test_find_delimiter_valid(tmp_path: Path,
     assert detected == delimiter
 
 
-def test_find_delimiter_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_find_delimiter_invalid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     file = tmp_path / "bad.csv"
     file.write_text("a,b,c")
 
@@ -83,6 +90,7 @@ def test_find_delimiter_unsupported_delimiter(tmp_path: Path) -> None:
 
 
 # %% filter utils
+
 
 # filter_by_time
 @pytest.mark.parametrize(
@@ -173,13 +181,13 @@ def test_filter_by_label_invalid(sample_df: DataFrame) -> None:
     "f_min, f_max",
     [
         pytest.param(
-            500,     # valid lower bound
+            500,  # valid lower bound
             None,
             id="valid_f_min_only",
         ),
         pytest.param(
             None,
-            60000,   # valid upper bound
+            60000,  # valid upper bound
             id="valid_f_max_only",
         ),
         pytest.param(
@@ -337,6 +345,7 @@ def test_get_timezone_several(sample_df: DataFrame) -> None:
     assert pytz.UTC in tz
     assert pytz.FixedOffset(420) in tz
 
+
 # %% read DataFrame
 
 
@@ -361,7 +370,7 @@ def test_read_dataframe_drop_duplicates_and_na(tmp_path: Path) -> None:
         "start_datetime,end_datetime,annotation\n"
         "2025-01-01 12:00:00,2025-01-01 12:05:00,whale\n"
         "2025-01-01 12:00:00,2025-01-01 12:05:00,whale\n"  # duplicate
-        "2025-01-01 13:00:00,2025-01-01 13:05:00,\n",      # NaN annotation
+        "2025-01-01 13:00:00,2025-01-01 13:05:00,\n",  # NaN annotation
     )
 
     df = read_dataframe(csv_file)
@@ -395,6 +404,7 @@ def test_read_dataframe_nrows(tmp_path: Path) -> None:
 
 # %% reshape_timebin
 
+
 def test_no_timebin_returns_original(sample_df: DataFrame) -> None:
     df_out = reshape_timebin(sample_df, timebin_new=None, timestamp_audio=None)
     assert df_out.equals(sample_df)
@@ -419,8 +429,9 @@ def test_no_timebin_several_tz(sample_df: DataFrame) -> None:
         [sample_df, DataFrame([new_row])],
         ignore_index=False,
     )
-    timestamp_wav = to_datetime(sample_df["filename"],
-                                format="%Y_%m_%d_%H_%M_%S").dt.tz_localize(pytz.UTC)
+    timestamp_wav = to_datetime(
+        sample_df["filename"], format="%Y_%m_%d_%H_%M_%S"
+    ).dt.tz_localize(pytz.UTC)
     df_out = reshape_timebin(sample_df, timestamp_audio=timestamp_wav, timebin_new=None)
     assert df_out.equals(sample_df)
 
@@ -482,7 +493,6 @@ def test_no_timebin_original_timebin(sample_df: DataFrame) -> None:
                 "lbl2",
                 "lbl2",
                 "lbl1",
-
             ],
             "annotator": [
                 "ann1",
@@ -503,12 +513,11 @@ def test_no_timebin_original_timebin(sample_df: DataFrame) -> None:
                 "ann3",
                 "ann4",
                 "ann5",
-
             ],
-            "start_datetime": [Timestamp("2025-01-25 06:20:00+00:00")] * 11 +
-                              [Timestamp("2025-01-26 06:20:00+00:00")] * 7,
-            "end_datetime": [Timestamp("2025-01-25 06:21:00+00:00")] * 11 +
-                            [Timestamp("2025-01-26 06:21:00+00:00")] * 7,
+            "start_datetime": [Timestamp("2025-01-25 06:20:00+00:00")] * 11
+            + [Timestamp("2025-01-26 06:20:00+00:00")] * 7,
+            "end_datetime": [Timestamp("2025-01-25 06:21:00+00:00")] * 11
+            + [Timestamp("2025-01-26 06:21:00+00:00")] * 7,
             "type": ["WEAK"] * 18,
         },
     )
@@ -540,18 +549,22 @@ def test_reshape_daily_multiple_bins(sample_df: DataFrame) -> None:
         sample_df["filename"],
         format="%Y_%m_%d_%H_%M_%S",
     ).dt.tz_localize(tz)
-    df_out = reshape_timebin(sample_df, timestamp_audio=timestamp_wav, timebin_new=Timedelta(days=1))
+    df_out = reshape_timebin(
+        sample_df, timestamp_audio=timestamp_wav, timebin_new=Timedelta(days=1)
+    )
     assert not df_out.empty
     assert all(df_out["end_time"] == 86400.0)
-    assert df_out["start_datetime"].min() >= sample_df["start_datetime"].min().floor("D")
+    assert df_out["start_datetime"].min() >= sample_df["start_datetime"].min().floor(
+        "D"
+    )
     assert df_out["end_datetime"].max() <= sample_df["end_datetime"].max().ceil("D")
 
 
 def test_with_manual_timestamps_vector(sample_df: DataFrame) -> None:
-
     tz = get_timezone(sample_df)
-    timestamp_wav = to_datetime(sample_df["filename"],
-                                format="%Y_%m_%d_%H_%M_%S").dt.tz_localize(tz)
+    timestamp_wav = to_datetime(
+        sample_df["filename"], format="%Y_%m_%d_%H_%M_%S"
+    ).dt.tz_localize(tz)
     df_out = reshape_timebin(
         sample_df,
         timestamp_audio=timestamp_wav,
@@ -565,13 +578,17 @@ def test_with_manual_timestamps_vector(sample_df: DataFrame) -> None:
 
 def test_empty_result_when_no_matching(sample_df: DataFrame) -> None:
     tz = get_timezone(sample_df)
-    timestamp_wav = to_datetime(sample_df["filename"],
-                                format="%Y_%m_%d_%H_%M_%S").dt.tz_localize(tz)
+    timestamp_wav = to_datetime(
+        sample_df["filename"], format="%Y_%m_%d_%H_%M_%S"
+    ).dt.tz_localize(tz)
     with pytest.raises(ValueError, match="DataFrame is empty"):
-        reshape_timebin(DataFrame(), timestamp_audio=timestamp_wav, timebin_new=Timedelta(hours=1))
+        reshape_timebin(
+            DataFrame(), timestamp_audio=timestamp_wav, timebin_new=Timedelta(hours=1)
+        )
 
 
 # %% ensure_no_invalid
+
 
 def test_ensure_no_invalid_empty() -> None:
     try:
@@ -597,31 +614,39 @@ def test_ensure_no_invalid_single_element() -> None:
     assert "baz" in str(exc_info.value)
     assert "features" in str(exc_info.value)
 
+
 # %% intersection / union
 
 
-def test_intersection(sample_df) -> None:
-    df_result = intersection_or_union(sample_df[sample_df["annotator"].isin(["ann1", "ann2"])], user_sel="intersection")
+def test_intersection(sample_df: DataFrame) -> None:
+    df_result = intersection_or_union(
+        sample_df[sample_df["annotator"].isin(["ann1", "ann2"])],
+        user_sel="intersection",
+    )
 
-    assert set(df_result["annotation"]) == {"lbl1", "lbl2"}
+    assert set(df_result["annotation"]) == {"lbl1 ∩ lbl2"}
     assert set(df_result["annotator"]) == {"ann1 ∩ ann2"}
 
 
-def test_union(sample_df) -> None:
-    df_result = intersection_or_union(sample_df[sample_df["annotator"].isin(["ann1", "ann2"])], user_sel="union")
+def test_union(sample_df: DataFrame) -> None:
+    df_result = intersection_or_union(
+        sample_df[sample_df["annotator"].isin(["ann1", "ann2"])], user_sel="union"
+    )
 
-    assert set(df_result["annotation"]) == {"lbl1", "lbl2"}
+    assert set(df_result["annotation"]) == {"lbl1 ∪ lbl2"}
     assert set(df_result["annotator"]) == {"ann1 ∪ ann2"}
 
 
-def test_all_user_sel_returns_original(sample_df) -> None:
+def test_all_user_sel_returns_original(sample_df: DataFrame) -> None:
     df_result = intersection_or_union(sample_df, user_sel="all")
 
     assert len(df_result) == len(sample_df)
 
 
-def test_invalid_user_sel_raises(sample_df) -> None:
-    with pytest.raises(ValueError, match="'user_sel' must be either 'intersection' or 'union'"):
+def test_invalid_user_sel_raises(sample_df: DataFrame) -> None:
+    with pytest.raises(
+        ValueError, match="'user_sel' must be either 'intersection' or 'union'"
+    ):
         intersection_or_union(sample_df, user_sel="invalid")
 
 

@@ -37,6 +37,7 @@ dev = [
     "sphinx-book-theme>=1.1.4",
     "sphinx-copybutton>=0.5.2",
     "coverage>=7.11.0",
+    "pre-commit>=4.5.1",
 ]
 
 [tool.ruff.lint.flake8-copyright]

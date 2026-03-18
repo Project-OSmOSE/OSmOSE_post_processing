@@ -10,3 +10,4 @@
   'f_min': null
   'f_max': null
   'score': null
+  'filename_format': "%Y-%m-%dT%H-%M-%S_000.wav"

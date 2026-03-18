@@ -10,7 +10,6 @@ from post_processing.dataclass.data_aplose import DataAplose
 from post_processing.utils.core_utils import (
     add_recording_period,
     add_season_period,
-    add_weak_detection,
     get_coordinates,
     get_count,
     get_labels_and_annotators,
@@ -23,6 +22,7 @@ from post_processing.utils.core_utils import (
     set_bar_height,
     timedelta_to_str,
 )
+from post_processing.utils.filtering_utils import add_weak_detection
 
 
 def test_coordinates_valid_input(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -30,6 +30,7 @@ def test_coordinates_valid_input(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def fake_box(msg: str, title: str, fields: list[str]) -> list[str]:
         return inputs
+
     monkeypatch.setattr("easygui.multenterbox", fake_box)
     lat, lon = get_coordinates()
     assert lat == 42  # noqa: PLR2004
@@ -39,6 +40,7 @@ def test_coordinates_valid_input(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_coordinates_cancelled_input(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_box(msg: str, title: str, fields: list[str]) -> None:
         return None
+
     monkeypatch.setattr("easygui.multenterbox", fake_box)
     with pytest.raises(TypeError, match="was cancelled"):
         get_coordinates()
@@ -49,6 +51,7 @@ def test_coordinates_invalid_then_valid_input(monkeypatch: pytest.MonkeyPatch) -
 
     def fake_box(msg: str, title: str, fields: list[str]) -> list[str]:
         return inputs.pop(0)
+
     monkeypatch.setattr("easygui.multenterbox", fake_box)
     lat, lon = get_coordinates()
     assert lat == 45.0  # noqa: PLR2004
@@ -60,6 +63,7 @@ def test_coordinates_non_numeric_input(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def fake_box(msg: str, title: str, fields: list[str]) -> list[str]:
         return inputs.pop(0)
+
     monkeypatch.setattr("easygui.multenterbox", fake_box)
     lat, lon = get_coordinates()
     assert lat == 10.0  # noqa: PLR2004
@@ -77,7 +81,6 @@ def test_coordinates_non_numeric_input(monkeypatch: pytest.MonkeyPatch) -> None:
         (Timestamp("2025-02-28"), True, ("winter", 2024)),
         (Timestamp("2024-02-29"), True, ("winter", 2023)),
         (Timestamp("2025-12-25"), True, ("winter", 2025)),
-
         # Southern hemisphere
         (Timestamp("2025-03-15"), False, ("autumn", 2025)),
         (Timestamp("2025-06-21"), False, ("winter", 2025)),
@@ -95,21 +98,26 @@ def test_get_season(ts: Timestamp, northern: bool, expected: tuple[str, int]) ->
 @pytest.mark.parametrize(
     ("start", "stop", "lat", "lon"),
     [
-        (Timestamp("2025-06-01 00:00:00+00:00"),
-         Timestamp("2025-06-03 23:59:59+00:00"),
-         49.4333,
-         -1.5167),
-        (Timestamp("2025-12-21 00:00:00+00:00"),
-         Timestamp("2025-12-22 23:59:59+00:00"),
-         -34.9011,
-         -56.1645),
+        (
+            Timestamp("2025-06-01 00:00:00+00:00"),
+            Timestamp("2025-06-03 23:59:59+00:00"),
+            49.4333,
+            -1.5167,
+        ),
+        (
+            Timestamp("2025-12-21 00:00:00+00:00"),
+            Timestamp("2025-12-22 23:59:59+00:00"),
+            -34.9011,
+            -56.1645,
+        ),
     ],
 )
-def test_get_sun_times_valid_input(start: Timestamp,
-                                   stop: Timestamp,
-                                   lat: float,
-                                   lon: float,
-                                   ) -> None:
+def test_get_sun_times_valid_input(
+    start: Timestamp,
+    stop: Timestamp,
+    lat: float,
+    lon: float,
+) -> None:
     results = get_sun_times(start, stop, lat, lon)
     h_sunrise, h_sunset = results
 
@@ -128,10 +136,12 @@ def test_get_sun_times_valid_input(start: Timestamp,
 @pytest.mark.parametrize(
     ("start", "stop", "lat", "lon"),
     [
-        (Timestamp("2025-06-01 00:00:00"),
-         Timestamp("2025-06-03 23:59:59"),
-         49.4333,
-         -1.5167),
+        (
+            Timestamp("2025-06-01 00:00:00"),
+            Timestamp("2025-06-03 23:59:59"),
+            49.4333,
+            -1.5167,
+        ),
     ],
 )
 def test_get_sun_times_naive_timestamps(
@@ -146,18 +156,21 @@ def test_get_sun_times_naive_timestamps(
 
 # %% get_count
 
+
 def test_get_count_basic(sample_df: DataFrame) -> None:
     df = DataAplose(sample_df).filter_df(annotator="ann1", label="lbl1")
-    result = get_count(df, bin_size=Timedelta("30min"))
+    result = get_count(df, bin_size=Timedelta("1min"))
     expected = sample_df[
-        (sample_df["annotator"] == "ann1") &
-        (sample_df["annotation"] == "lbl1")
+        (sample_df["annotator"] == "ann1") & (sample_df["annotation"] == "lbl1")
     ]
-    assert list(result.index) == date_range(
-        Timestamp("2025-01-25 06:00:00+0000"),
-        Timestamp("2025-01-26 06:00:00+0000"),
-        freq="30min",
-    ).to_list()
+    assert (
+        list(result.index)
+        == date_range(
+            Timestamp("2025-01-25 06:20:00+0000"),
+            Timestamp("2025-01-26 06:20:00+0000"),
+            freq="1min",
+        ).to_list()
+    )
     assert result.columns == ["lbl1-ann1"]
     assert sum(result["lbl1-ann1"].tolist()) == len(expected)
 
@@ -166,9 +179,9 @@ def test_get_count_multiple_annotators(sample_df: DataFrame) -> None:
     df = DataAplose(sample_df).filter_df(annotator=["ann1", "ann2"], label="lbl1")
     result = get_count(df, bin_size=Timedelta("1d"))
     expected = sample_df[
-        (sample_df["annotator"].isin(["ann1", "ann2"])) &
-        (sample_df["annotation"] == "lbl1")
-        ]
+        (sample_df["annotator"].isin(["ann1", "ann2"]))
+        & (sample_df["annotation"] == "lbl1")
+    ]
 
     assert set(result.columns) == {"lbl1-ann1", "lbl1-ann2"}
     assert result["lbl1-ann1"].sum() == len(expected[expected["annotator"] == "ann1"])
@@ -176,12 +189,14 @@ def test_get_count_multiple_annotators(sample_df: DataFrame) -> None:
 
 
 def test_get_count_multiple_labels(sample_df: DataFrame) -> None:
-    df = DataAplose(sample_df).filter_df(annotator="ann5", label=["lbl1", "lbl2", "lbl3"])
+    df = DataAplose(sample_df).filter_df(
+        annotator="ann5", label=["lbl1", "lbl2", "lbl3"]
+    )
     result = get_count(df, bin_size=Timedelta("1day"))
     expected = sample_df[
-        (sample_df["annotator"] == "ann5") &
-        (sample_df["annotation"].isin(["lbl1", "lbl2", "lbl3"]))
-        ]
+        (sample_df["annotator"] == "ann5")
+        & (sample_df["annotation"].isin(["lbl1", "lbl2", "lbl3"]))
+    ]
 
     assert set(result.columns) == {"lbl1-ann5", "lbl2-ann5", "lbl3-ann5"}
     assert result["lbl1-ann5"].sum() == len(expected[expected["annotation"] == "lbl1"])
@@ -190,18 +205,28 @@ def test_get_count_multiple_labels(sample_df: DataFrame) -> None:
 
 
 def test_get_count_multiple_labels_annotators(sample_df: DataFrame) -> None:
-    df = DataAplose(sample_df).filter_df(annotator=["ann1", "ann2"],
-                                         label=["lbl1", "lbl2"],
-                                         )
+    df = DataAplose(sample_df).filter_df(
+        annotator=["ann1", "ann2"],
+        label=["lbl1", "lbl2"],
+    )
     result = get_count(df, bin_size=Timedelta("1day"))
     assert set(result.columns) == {"lbl1-ann1", "lbl2-ann2"}
-    assert result["lbl1-ann1"].sum() == len(sample_df[(sample_df["annotation"] == "lbl1") & (sample_df["annotator"] == "ann1")])
-    assert result["lbl2-ann2"].sum() == len(sample_df[(sample_df["annotation"] == "lbl2") & (sample_df["annotator"] == "ann2")])
+    assert result["lbl1-ann1"].sum() == len(
+        sample_df[
+            (sample_df["annotation"] == "lbl1") & (sample_df["annotator"] == "ann1")
+        ]
+    )
+    assert result["lbl2-ann2"].sum() == len(
+        sample_df[
+            (sample_df["annotation"] == "lbl2") & (sample_df["annotator"] == "ann2")
+        ]
+    )
 
 
 def test_get_count_empty_df() -> None:
     with pytest.raises(ValueError, match="`df` contains no data"):
         get_count(DataFrame(), Timedelta("1h"))
+
 
 # %% get_labels_and_annotators
 
@@ -240,6 +265,7 @@ def test_get_labels_and_annotators_empty_dataframe() -> None:
     with pytest.raises(ValueError, match="`df` contains no data"):
         get_labels_and_annotators(DataFrame())
 
+
 # %% localize_timestamps
 
 
@@ -272,6 +298,7 @@ def test_mixed_naive_and_aware() -> None:
     assert localized[0].tzinfo.zone == tz.zone
     assert localized[1].tzinfo.zone == tz.zone
 
+
 # %% get_time_range_and_bin_size
 
 
@@ -280,7 +307,9 @@ def test_time_range_timedelta() -> None:
     bin_size = Timedelta("1h")
     time_range, returned_bin = get_time_range_and_bin_size(timestamps, bin_size)
 
-    expected = date_range(start="2025-08-20 12:00:00", end="2025-08-20 15:00:00", freq="1h")
+    expected = date_range(
+        start="2025-08-20 12:00:00", end="2025-08-20 15:00:00", freq="1h"
+    )
     assert (time_range == expected).all()
     assert returned_bin == bin_size
 
@@ -290,7 +319,9 @@ def test_time_range_baseoffset() -> None:
     bin_size = frequencies.to_offset("1h")
     time_range, returned_bin = get_time_range_and_bin_size(timestamps, bin_size)
 
-    expected = date_range(start="2025-08-20 12:00:00", end="2025-08-20 15:00:00", freq="1h")
+    expected = date_range(
+        start="2025-08-20 12:00:00", end="2025-08-20 15:00:00", freq="1h"
+    )
     assert (time_range == expected).all()
     assert returned_bin == bin_size
 
@@ -305,15 +336,20 @@ def test_empty_timestamp_list() -> None:
 def test_invalid_timestamp_list_type() -> None:
     timestamps = "not_a_list"
     bin_size = Timedelta("1h")
-    with pytest.raises(TypeError, match=r"`timestamp_list` must be a list\[Timestamp\]"):
+    with pytest.raises(
+        TypeError, match=r"`timestamp_list` must be a list\[Timestamp\]"
+    ):
         get_time_range_and_bin_size(timestamps, bin_size)
 
 
 def test_invalid_timestamp_list_content() -> None:
     timestamps = [Timestamp("2025-08-20"), "not_a_timestamp"]
     bin_size = Timedelta("1h")
-    with pytest.raises(TypeError, match=r"`timestamp_list` must be a list\[Timestamp\]"):
+    with pytest.raises(
+        TypeError, match=r"`timestamp_list` must be a list\[Timestamp\]"
+    ):
         get_time_range_and_bin_size(timestamps, bin_size)
+
 
 # %% round_begin_end_timestamps
 
@@ -354,11 +390,14 @@ def test_round_begin_end_timestamps_valid_entry_2() -> None:
         Timestamp("2025-01-01 10:15:00"),
         Timestamp("2025-01-03 18:45:00"),
     ]
-    start, end, bin_size = round_begin_end_timestamps(ts_list, frequencies.to_offset("1h"))
+    start, end, bin_size = round_begin_end_timestamps(
+        ts_list, frequencies.to_offset("1h")
+    )
 
     assert start == Timestamp("2025-01-01 10:00:00")
     assert end == Timestamp("2025-01-03 19:00:00")
     assert bin_size == Timedelta("1h")
+
 
 # %% timedelta_to_str
 
@@ -391,21 +430,23 @@ def test_add_wd(sample_df: DataFrame) -> None:
 
 # %% add_season_period
 
-def test_add_season_valid() -> None:
-    fig, ax = plt.subplots()
-    start = Timestamp("2025-01-01T00:00:00+00:00")
-    stop = Timestamp("2025-01-02T00:00:00+00:00")
 
-    ts = date_range(start=start, end=stop, freq="H", tz="UTC")
-    values = list(range(len(ts)))
-    ax.plot(ts, values)
+def test_add_season_valid() -> None:
+    _, ax = plt.subplots()
+    start = Timestamp("2025-01-01")
+    stop = Timestamp("2026-01-01")
+    freq = Timedelta("1d")
+    ts = date_range(start=start, end=stop, freq=freq, tz="UTC")
+    values = [date.day for date in ts]
+    [ax.bar(loc + freq, height) for loc, height in zip(ts, values, strict=True)]
     add_season_period(ax=ax)
 
 
 def test_add_season_no_data() -> None:
-    fig, ax = plt.subplots()
+    _, ax = plt.subplots()
     with pytest.raises(ValueError, match=r"have no data"):
         add_season_period(ax=ax)
+
 
 # %% add_recording_period
 
@@ -437,6 +478,7 @@ def test_add_recording_period_no_data() -> None:
     with pytest.raises(ValueError, match=r"have no data"):
         add_recording_period(df=df, ax=ax)
 
+
 # %% set_bar_height
 
 
@@ -456,6 +498,7 @@ def test_set_bar_height_no_data() -> None:
     fig, ax = plt.subplots()
     with pytest.raises(ValueError, match=r"have no data"):
         set_bar_height(ax=ax)
+
 
 # %% json2df
 
