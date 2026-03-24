@@ -206,7 +206,8 @@ def get_feeding_buzz_datetime(row: Series) -> Timestamp:
         exceptions.append(e)
 
     try:
-        return Timestamp(row["Minute"]) + Timedelta(microseconds=row["microsec"])
+        return (strptime_from_text(row["Minute"], "%-d/%-m/%Y %H:%M") +
+                Timedelta(microseconds=row["microsec"]))
     except (KeyError, TypeError, ValueError) as e:
         exceptions.append(e)
 
@@ -633,18 +634,18 @@ def percent_calc(
     DataFrame
 
     """
-    group_cols = ["site.name"]
-    if time_unit is not None:
-        group_cols.insert(0, time_unit)
+    # group_cols = ["site.name"]
+    # if time_unit is not None:
+    #     group_cols.insert(0, time_unit)
 
     # Aggregate and compute metrics
     df = (
         data
-        .groupby(group_cols)
+        .groupby(time_unit)
         .agg(
             {
                 "DPh": "sum",
-                "DPM": "sum",
+                "dpm_count": "sum",
                 "Day": "size",
                 "Foraging": "sum",
             },
@@ -652,10 +653,10 @@ def percent_calc(
         .reset_index()
     )
 
-    df["%click"] = df["DPM"] * 100 / (df["Day"] * 60)
+    df["%click"] = df["dpm_count"] * 100 / (df["Day"] * 60)
     df["%DPh"] = df["DPh"] * 100 / df["Day"]
     df["FBR"] = df.apply(
-        lambda row: (row["Foraging"] * 100 / row["DPM"]) if row["DPM"] > 0 else 0,
+        lambda row: (row["Foraging"] * 100 / row["dpm_count"]) if row["dpm_count"] > 0 else 0,
         axis=1,
     )
     df["%buzzes"] = df["Foraging"] * 100 / (df["Day"] * 60)
