@@ -16,6 +16,7 @@ from pandas import (
     Timedelta,
     Timestamp,
     concat,
+    cut,
     date_range,
     read_csv,
     to_datetime,
@@ -436,9 +437,10 @@ def _create_result_dataframe(
     dataset: str,
     label: str,
     annotator: str,
+    dpm_count: list[int] | None = None,
 ) -> DataFrame:
     """Create result DataFrame for one annotator-label combination."""
-    return DataFrame({
+    df = DataFrame({
         "dataset": [dataset] * len(file_vector),
         "filename": file_vector,
         "start_time": [0] * len(file_vector),
@@ -451,6 +453,9 @@ def _create_result_dataframe(
         "end_datetime": [t + timebin_new for t in start_datetime],
         "type": ["WEAK"] * len(file_vector),
     })
+    if dpm_count is not None:
+        df["dpm_count"] = dpm_count
+    return df
 
 
 def _normalize_timezones(df: DataFrame) -> DataFrame:
@@ -510,6 +515,15 @@ def _process_annotator_label_pair(
     if not start_datetime:
         return None
 
+    if annotator.lower() in {"fpod", "cpod"}:
+        bins = list(time_vector) + [time_vector[-1] + timebin_new]
+        counts = cut(ts_detect_beg, bins=bins, right=False).value_counts().sort_index()
+        dpm_count = [
+            counts.iloc[i] for i, detected in enumerate(detect_vec) if detected
+        ]
+    else:
+        dpm_count = None
+
     return _create_result_dataframe(
         file_vector,
         start_datetime,
@@ -518,6 +532,7 @@ def _process_annotator_label_pair(
         dataset,
         label,
         annotator,
+        dpm_count=dpm_count,
     )
 
 
