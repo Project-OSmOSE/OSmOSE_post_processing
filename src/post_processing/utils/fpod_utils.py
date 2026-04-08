@@ -146,7 +146,7 @@ def load_pod_folder(
             file,
             sep=sep,
             dtype={"microsec": "Int32"},
-            usecols=lambda col: col not in ["SmoothedICI", "ICIslope"],
+            usecols=lambda col: col not in {"SmoothedICI", "ICIslope"},
         ).dropna()
 
         df["Deploy"] = file.stem.strip().lower().replace(" ", "_")
@@ -280,265 +280,99 @@ def process_feeding_buzz(
     return df_buzz
 
 
-def compute_ici(
-    df: DataFrame,
-) -> Series[Any] | None:
-    """Calculate Inter-Click Intervals from feeding buzz timestamps.
-
-    The Inter-Click Intervals are expressed in minutes.
-
-    Parameters
-    ----------
-    df: DataFrame
-        Feeding buzz DataFrame processed with load_pod_folder.
-
-    Returns
-    -------
-    DataFrame
-       A DataFrame containing non-negative Timestamps in minutes representing ICIs.
-
-    """
+def compute_ici(df: DataFrame) -> DataFrame:
+    """Calculate Inter-Click Intervals (in minutes) from feeding buzz timestamps."""
     df = df.copy()
     df["ICI_minutes"] = df["Datetime"].diff().dt.total_seconds() / 60
     return df[df["ICI_minutes"] > 0].dropna(subset=["ICI_minutes"])
 
 
-def log_ici(
-    df: DataFrame,
-) -> tuple[DataFrame, Any]:
-    """Convert ICI time deltas into minutes in order to process GMM.
+def fit_gmm(df: DataFrame, comp: int) -> tuple[DataFrame, ndarray, GaussianMixture]:
+    """Fit a GMM on log-transformed ICIs and label clusters by ascending mean.
 
     Parameters
     ----------
     df: DataFrame
-        Feeding buzz DataFrame processed with load_pod_folder.
+        POD loaded dataframe
+    comp: int
+        Number of components to apply to the GMM.
 
     Returns
     -------
-    ndarray
-        Containing all ICIs log transformed
-    DataFrame
-        Original DataFrame with ICIs expressed in minutes
+    tuple
+    Returns the enriched DataFrame, the log-ICI array, and the fitted GMM.
 
     """
     df = compute_ici(df)
     ici_log = log(df["ICI_minutes"].to_numpy()).reshape(-1, 1)
-    return df, ici_log
 
-
-def gmm_ici(
-    df: DataFrame,
-    comp: int,
-) -> tuple[ndarray, GaussianMixture]:
-    """Run a GMM on ICIs expressed in minutes.
-
-    Parameters
-    ----------
-    df: DataFrame
-        Feeding buzz DataFrame processed with load_pod_folder.
-    comp: int
-        Number of components to input to the GMM.
-
-    Returns
-    -------
-    DataFrame
-        ICIs categorized by GMM clusters.
-
-    """
-    df, ici = log_ici(df)
-
-    gmm = mixture.GaussianMixture(n_components=comp,
-                                  covariance_type="full",
-                                  random_state=42,
-                                  n_init=20)
-    labels = gmm.fit_predict(ici)
+    gmm = mixture.GaussianMixture(
+        n_components=comp, covariance_type="full", random_state=42, n_init=20,
+    )
+    labels = gmm.fit_predict(ici_log)
 
     rank = argsort(argsort(gmm.means_.flatten()))
     df["cluster"] = rank[labels]
-    return df, gmm
+
+    return df, ici_log, gmm
 
 
-def gmm_feeding_buzz(
-    df: DataFrame,
-) -> DataFrame:
-    """Process a POD feeding buzz detection DataFrame.
+def cluster_info(gmm: GaussianMixture) -> list[dict]:
+    """Extract per-component statistics from a fitted GMM, sorted by ascending mean."""
+    component_names = ["Buzz ICIs", "Regular ICIs", "Long ICIs"]
+    sorted_means = sort(gmm.means_, axis=0)
 
-    Give the feeding buzz duration, depending on the studied species
-    (`delphinid`, `porpoise` or `commerson`).
+    return [
+        {
+            "name": component_names[i],
+            "id": i,
+            "mean_log": sorted_means[i][0],
+            "std_log": sqrt(gmm.covariances_[i][0][0]),
+            "mean_minutes": exp(sorted_means[i][0]),
+            "mean_ms": exp(sorted_means[i][0]) * 60 * 1000,
+        }
+        for i in range(gmm.n_components)
+    ]
+
+
+def _mixture_density(gmm: GaussianMixture, x_range: ndarray) -> ndarray:
+    """Compute the total GMM mixture density over x_range."""
+    density = zeros(len(x_range))
+    for idx in range(gmm.n_components):
+        mean = gmm.means_[idx][0]
+        std = sqrt(gmm.covariances_[idx][0][0])
+        density += gmm.weights_[idx] * stats.norm.pdf(x_range, mean, std)
+    return density
+
+
+def gmm_feeding_buzz(df: DataFrame, comp: int) -> DataFrame:
+    """Categorize ICIs with a GMM and aggregate foraging activity per minute.
 
     Parameters
     ----------
     df: DataFrame
-        Path to cpod.exe feeding buzz file
+        POD loaded dataframe
+    comp: int
+        Number of components to apply to the GMM.
 
     Returns
     -------
     DataFrame
-        Containing all ICIs for every positive minute to click
+        A DataFrame of two columns : minute positive to feeding buzz or not and number of buzzes.
 
     """
+    df, _, _ = fit_gmm(df, comp)
+
     df["Buzz"] = nan
-    df.loc[df.cluster == 0, "Buzz"] = 1
+    df.loc[df["cluster"] == 0, "Buzz"] = 1
     df["start_datetime"] = df["Datetime"].dt.floor("min")
 
-    df_buzz = df.groupby(["start_datetime"])["Buzz"].sum().reset_index()
-    df_buzz["Foraging"] = to_numeric(
-        df_buzz["Buzz"] != 0,
-        downcast="integer",
-    ).astype(int)
-
+    df_buzz = df.groupby("start_datetime")["Buzz"].sum().reset_index()
+    df_buzz["Foraging"] = to_numeric(df_buzz["Buzz"] != 0, downcast="integer").astype(int)
     return df_buzz
 
 
-def cluster_ici(
-    df: DataFrame,
-    comp: int,
-) -> list[Any]:
-    """Process a POD feeding buzz detection DataFrame.
-
-    Give the feeding buzz duration, depending on the studied species
-    (`delphinid`, `porpoise` or `commerson`).
-
-    Parameters
-    ----------
-    df: list
-        Path to cpod.exe feeding buzz file
-    comp: int
-        Number of components to input to the GMM
-
-    Returns
-    -------
-    DataFrame
-        Containing all ICIs for every positive minute to click
-
-    """
-    _, ar_ici = log_ici(df)
-    gmm = mixture.GaussianMixture(n_components=comp, covariance_type="full")
-    gmm.fit(ar_ici)
-
-    component_names = ["Buzz ICIs", "Regular ICIs", "Long ICIs",]
-    cluster_info = []
-    for i in range(comp):
-        means = sort(gmm.means_, axis=0)[i][0]
-        cluster_info.append({
-            "name": component_names[i],
-            "id": i,
-            "mean_log": means,
-            "std_log": sqrt(gmm.covariances_[i][0][0]),
-            "mean_minutes": exp(means),
-            "mean_ms": exp(means) * 60 * 1000,
-        })
-
-    return cluster_info
-
-
-def mixt_tot(df: DataFrame, comp: int) -> ndarray[tuple[int], dtype[float64]]:
-    """Parameters
-    ----------
-    df: DataFrame
-        Feeding buzz DataFrame processed with load_pod_folder.
-    comp: int
-        Number of components to input to the GMM.
-
-    Returns
-    -------
-
-    """
-    _, gmm_icis = gmm_ici(df, comp)
-    _, log_ar = log_ici(df)
-
-    x_range = linspace(log_ar.min(), log_ar.max(), 2000).reshape(-1, 1)
-
-    mixture_density = zeros(len(x_range))
-    for idx in range(comp):
-        mean = gmm_icis.means_[idx][0]
-        std = sqrt(gmm_icis.covariances_[idx][0][0])
-        weight = gmm_icis.weights_[idx]
-        gaussian = weight * stats.norm.pdf(x_range.flatten(), mean, std)
-        mixture_density += gaussian
-    return mixture_density
-
-
-def plot_gmm_ici(
-    df: DataFrame,
-    comp: int,
-) -> None:
-    """Plot the GMM clustering results on log-transformed ICIs.
-
-    Displays a histogram of log-transformed Inter-Click Intervals overlaid
-    with individual Gaussian components and the total mixture density.
-
-    Parameters
-    ----------
-    df: DataFrame
-        Feeding buzz DataFrame processed with load_pod_folder.
-    comp: int
-        Number of GMM components.
-
-    Returns
-    -------
-    tuple[plt.Figure, plt.Axes]
-        The matplotlib Figure and Axes objects for further customization.
-
-    """
-    _, log_ar = log_ici(df)
-    _, gmm_icis = gmm_ici(df, comp)
-
-    x_axis = sort(log_ar.flatten())
-    x_range = linspace(log_ar.min(), log_ar.max(), 2000).reshape(-1, 1)
-
-    mixture_density = zeros(len(x_range))
-    for idx in range(comp):
-        mean = gmm_icis.means_[idx][0]
-        std = sqrt(gmm_icis.covariances_[idx][0][0])
-        weight = gmm_icis.weights_[idx]
-        gaussian = weight * stats.norm.pdf(x_range.flatten(), mean, std)
-        mixture_density += gaussian
-
-    lines = []
-    fig, ax = plt.subplots(figsize=(12, 7))
-    ax.hist(
-        log_ar,
-        bins=200,
-        histtype="bar",
-        density=True,
-        alpha=0.6,
-        color="lightgray",
-        edgecolor="black",
-        linewidth=0.5,
-    )
-    for idx in range(comp):
-        (line,) = ax.plot(
-            x_axis,
-            gmm_icis.weights_[idx]
-            * stats.norm.pdf(
-                x_axis, gmm_icis.means_[idx, 0], sqrt(gmm_icis.covariances_[idx, 0, 0]),
-            ).ravel(),
-            label=f"(μ={gmm_icis.means_[idx, 0]:.2f},"
-                  f"σ={sqrt(gmm_icis.covariances_[idx, 0, 0]):.2f})",
-        )
-        lines += [line]
-    (mixture_line,) = ax.plot(
-        x_range,
-        mixture_density,
-        linewidth=2,
-        color="black",
-        linestyle="--",
-        label="Total mixture",
-        alpha=0.7,
-    )
-    lines.append(mixture_line)
-
-    ax.set_xlabel("Log ICI (log minutes)")
-    ax.set_ylabel("Density")
-    ax.set_title("GMM clustering of Inter-Click Intervals")
-    ax.legend(handles=lines)
-    ax.grid(True, alpha=0.3, linestyle="--")
-    plt.tight_layout()
-    plt.show()
-
-
-def process_timelost(df: DataFrame, threshold: int = 0) -> DataFrame:
+def process_timelost(df: DataFrame, threshold: int = 0) -> Series[Any]:
     """Process TimeLost DataFrame.
 
     Returns relevant columns and reshape into hourly data.
