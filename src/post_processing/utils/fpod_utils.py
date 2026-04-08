@@ -372,6 +372,42 @@ def gmm_feeding_buzz(df: DataFrame, comp: int) -> DataFrame:
     return df_buzz
 
 
+def plot_gmm_ici(df: DataFrame, comp: int) -> tuple[plt.Figure, plt.Axes]:
+    """Plot a histogram of log ICIs overlaid with GMM components and total mixture."""
+    df, ici_log, gmm = fit_gmm(df, comp)
+
+    x_flat = sort(ici_log.flatten())
+    x_range = linspace(ici_log.min(), ici_log.max(), 2000)
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+    ax.hist(
+        ici_log, bins=200, histtype="bar", density=True,
+        alpha=0.6, color="lightgray", edgecolor="black", linewidth=0.5,
+    )
+
+    lines = []
+    for idx in range(comp):
+        mean, std, weight = gmm.means_[idx, 0], sqrt(gmm.covariances_[idx, 0, 0]), gmm.weights_[idx]
+        (line,) = ax.plot(
+            x_flat, weight * stats.norm.pdf(x_flat, mean, std),
+            label=f"(μ={mean:.2f}, σ={std:.2f})",
+        )
+        lines.append(line)
+
+    (mix_line,) = ax.plot(
+        x_range, _mixture_density(gmm, x_range),
+        linewidth=2, color="black", linestyle="--", label="Total mixture", alpha=0.7,
+    )
+    lines.append(mix_line)
+
+    ax.set(xlabel="Log ICI (log minutes)", ylabel="Density", title="GMM clustering of Inter-Click Intervals")
+    ax.legend(handles=lines)
+    ax.grid(True, alpha=0.3, linestyle="--")
+    plt.tight_layout()
+    plt.show()
+    return fig, ax
+
+
 def process_timelost(df: DataFrame, threshold: int = 0) -> Series[Any]:
     """Process TimeLost DataFrame.
 
