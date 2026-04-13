@@ -252,13 +252,11 @@ class DataAplose:
                 msg = f'Label "{lbl}" not in APLOSE DataFrame'
                 raise ValueError(msg)
             if self.df[
-                (self.df["type"] == "WEAK")
-                & (self.df["annotator"] == ant)
-                & (self.df["annotation"] == lbl)
+                (self.df["annotator"] == ant) & (self.df["annotation"] == lbl)
             ].empty:
                 msg = (
                     f"DataFrame with annotator '{ant}' / label '{lbl}'"
-                    f" contains no weak detection."
+                    f" contains no detection."
                 )
                 raise ValueError(msg)
         config = list(zip(annotator, label, strict=False))
