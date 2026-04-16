@@ -252,15 +252,6 @@ def test_single_annotator_multiple_labels(sample_df: DataFrame) -> None:
     assert sorted(annotators) == ["ann1"] * 2
 
 
-def test_mismatched_labels_and_annotators() -> None:
-    df = DataFrame({
-        "annotation": ["lbl1", "lbl2", "lbl3"],
-        "annotator": ["ann1", "ann2", "ann2"],
-    })
-    with pytest.raises(ValueError, match="annotators and .* labels must match"):
-        get_labels_and_annotators(df)
-
-
 def test_get_labels_and_annotators_empty_dataframe() -> None:
     with pytest.raises(ValueError, match="`df` contains no data"):
         get_labels_and_annotators(DataFrame())

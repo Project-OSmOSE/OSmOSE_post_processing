@@ -379,9 +379,6 @@ def get_count(
 def get_labels_and_annotators(df: DataFrame) -> tuple[list, list]:
     """Extract and align annotation labels and annotators from an APLOSE DataFrame.
 
-    If only one label is present, it is duplicated to match the number of annotators.
-    Similarly, if one annotator is present, it is duplicated to match the labels.
-
     Parameters
     ----------
     df : DataFrame
@@ -397,18 +394,8 @@ def get_labels_and_annotators(df: DataFrame) -> tuple[list, list]:
         msg = "`df` contains no data"
         raise ValueError(msg)
 
-    annotators = df["annotator"].unique().tolist()
-    labels = df["annotation"].unique().tolist()
-    if len(labels) == 1:
-        labels = [labels[0]] * len(annotators)
-    if len(annotators) == 1:
-        annotators = [annotators[0]] * len(labels)
-
-    if len(annotators) != len(labels):
-        msg = f"{len(annotators)} annotators and {len(labels)} labels must match."
-        raise ValueError(msg)
-
-    return labels, annotators
+    unique_pairs = df[["annotator", "annotation"]].drop_duplicates()
+    return unique_pairs["annotation"].to_list(), unique_pairs["annotator"].to_list()
 
 
 def localize_timestamps(timestamps: list[Timestamp], tz: tzinfo) -> list[Timestamp]:
