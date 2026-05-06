@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytz
 from osekit.config import TIMESTAMP_FORMAT_AUDIO_FILE
-from osekit.utils.timestamp_utils import strftime_osmose_format, strptime_from_text
+from osekit.utils.timestamp import strftime_osmose_format, strptime_from_text
 from pandas import (
     DataFrame,
     Timedelta,
@@ -689,8 +689,11 @@ def add_weak_detection(
         Height of the weak detections
 
     """
+    df = df.copy()
     annotators = get_annotators(df)
+    annotators = [annotators] if isinstance(annotators, str) else annotators
     labels = get_labels(df)
+    labels = [labels] if isinstance(labels, str) else labels
     dataset_id = get_dataset(df)
     tz = get_timezone(df)
 
@@ -723,23 +726,24 @@ def add_weak_detection(
                         start_datetime = tz.localize(start_datetime)
 
                     end_datetime = start_datetime + Timedelta(max_time, unit="s")
-                    new_line = [
-                        dataset_id,
-                        f,
-                        0,
-                        max_time.total_seconds(),
-                        0,
-                        max_freq,
-                        lbl,
-                        ant,
-                        strftime_osmose_format(start_datetime),
-                        strftime_osmose_format(end_datetime),
-                        "WEAK",
-                    ]
-
-                    if "score" in df.columns:
-                        new_line.append(np.nan)
-                    df.loc[df.index.max() + 1] = new_line
+                    new_row = dict.fromkeys(df.columns, np.nan)
+                    new_row.update({
+                        "dataset": dataset_id,
+                        "filename": f,
+                        "start_time": 0,
+                        "end_time": max_time.total_seconds(),
+                        "min_frequency": 0,
+                        "start_frequency": 0,
+                        "max_frequency": max_freq,
+                        "end_frequency": max_freq,
+                        "annotation": lbl,
+                        "annotator": ant,
+                        "start_datetime": strftime_osmose_format(start_datetime),
+                        "end_datetime": strftime_osmose_format(end_datetime),
+                        "type": "WEAK",
+                    })
+                    new_row_df = DataFrame([new_row])
+                    df = concat([df, new_row_df], ignore_index=True)
 
     return df.sort_values(by=["start_datetime", "annotator"]).reset_index(drop=True)
 
