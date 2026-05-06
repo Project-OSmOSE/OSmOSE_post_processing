@@ -14,9 +14,7 @@ from typing import TYPE_CHECKING, Literal
 import yaml
 from pandas import Timedelta, Timestamp
 
-from post_processing.utils.filtering_utils import (
-    read_dataframe,
-)
+from post_processing.utils.filtering_utils import read_dataframe
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

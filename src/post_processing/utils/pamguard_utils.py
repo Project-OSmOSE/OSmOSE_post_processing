@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from osekit.core_api.audio_data import AudioData
-from osekit.utils.timestamp_utils import strftime_osmose_format
+from osekit.core.audio_data import AudioData
+from osekit.utils.timestamp import strftime_osmose_format
 from pandas import DataFrame, Timedelta, Timestamp
 from pypamguard import load_pamguard_binary_folder
 from pypamguard.core.filters import DateFilter, Filters
@@ -11,11 +11,12 @@ from tqdm import tqdm
 logger.set_verbosity(Verbosity.ERROR)
 
 
-def process_binary(audio: AudioData,
-                   binary: Path,
-                   dataset: str,
-                   annotation: str,
-                   ) -> DataFrame:
+def process_binary(
+    audio: AudioData,
+    binary: Path,
+    dataset: str,
+    annotation: str,
+) -> DataFrame:
     r"""Process PAMGuard binary files into APLOSE DataFrame.
 
     Parameters
@@ -64,7 +65,9 @@ def process_binary(audio: AudioData,
     """
     filter_obj = Filters(
         {
-        "daterange": DateFilter(start_date=audio.begin, end_date=audio.end, ordered=True),
+            "daterange": DateFilter(
+                start_date=audio.begin, end_date=audio.end, ordered=True
+            ),
         },
     )
 

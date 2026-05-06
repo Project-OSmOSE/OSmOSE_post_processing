@@ -90,8 +90,8 @@ def test_filter_df_invalid_combination(
     data = DataAplose(sample_df)
     with pytest.raises(
         ValueError,
-        match="DataFrame with annotator 'ann1' /"
-        " label 'lbl3' contains no weak detection.",
+        match=r"DataFrame with annotator 'ann1' /"
+        " label 'lbl3' contains no detection.",
     ):
         data.filter_df(annotator="ann1", label="lbl3")
 

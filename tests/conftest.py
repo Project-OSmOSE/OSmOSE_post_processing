@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 import yaml
-from osekit.utils.timestamp_utils import strftime_osmose_format
+from osekit.utils.timestamp import strftime_osmose_format
 from pandas import DataFrame, read_csv
 from pandas.tseries import frequencies
 
