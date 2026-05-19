@@ -22,7 +22,7 @@ from numpy import (
     sqrt,
     zeros,
 )
-from osekit.utils.timestamp_utils import strftime_osmose_format, strptime_from_text
+from osekit.utils.timestamp import strftime_osmose_format, strptime_from_text
 from pandas import (
     DataFrame,
     DateOffset,
