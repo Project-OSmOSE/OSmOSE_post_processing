@@ -725,7 +725,7 @@ def add_weak_detection(
                     if not start_datetime.tz:
                         start_datetime = tz.localize(start_datetime)
 
-                    end_datetime = start_datetime + Timedelta(max_time, unit="s")
+                    end_datetime = start_datetime + max_time
                     new_row = dict.fromkeys(df.columns, np.nan)
                     new_row.update({
                         "dataset": dataset_id,
