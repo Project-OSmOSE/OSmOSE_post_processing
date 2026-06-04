@@ -504,11 +504,6 @@ def percent_calc(
     DataFrame
 
     """
-    # group_cols = ["site.name"]
-    # if time_unit is not None:
-    #     group_cols.insert(0, time_unit)
-
-    # Aggregate and compute metrics
     df = (
         data
         .groupby(time_unit)
@@ -526,444 +521,103 @@ def percent_calc(
     df["%click"] = df["dpm_count"] * 100 / (df["Day"] * 60)
     df["%DPh"] = df["DPh"] * 100 / df["Day"]
     df["FBR"] = df.apply(
-        lambda row: (row["Foraging"] * 100 / row["dpm_count"]) if row["dpm_count"] > 0 else 0,
+        lambda row: (row["Foraging"] * 100 / row["dpm_count"])
+        if row["dpm_count"] > 0
+        else 0,
         axis=1,
     )
     df["%buzzes"] = df["Foraging"] * 100 / (df["Day"] * 60)
     return df
 
 
-def site_percent(df: DataFrame, metric: str) -> None:
+def percent_barplot(df: DataFrame, unit: str, metric: str) -> None:
     """Plot a graph with the percentage of minutes positive to detection for every site.
 
     Parameters
     ----------
     df: DataFrame
         All percentages grouped by site
+    unit: str
+        Time unit the data are grouped in
     metric: str
-        Type of percentage you want to show on the graph
+        Type of percentage shown on the graph
 
     """
-    ax = sns.barplot(
-        data=df,
-        x="site.name",
-        y=metric,
-        hue="site.name",
-        dodge=False,
-        palette=site_colors,
-    )
-    ax.set_title(f"{metric} per site")
+    fig, ax = plt.subplots()
+    ax.bar(df[unit].astype(str), df[metric], color="#0072b2")
+    ax.set_title(f"{metric} per {unit}")
     ax.set_ylabel(f"{metric}")
+    ax.set_xlabel(f"{unit}")
     if metric in {"%buzzes", "FBR"}:
         for _, bar in enumerate(ax.patches):
             bar.set_hatch("/")
-    plt.show()
-
-
-def year_percent(df: DataFrame, metric: str) -> None:
-    """Plot a graph with the percentage of minutes positive to detection per site/year.
-
-    Parameters
-    ----------
-    df: DataFrame
-        All percentages grouped by site and year
-    metric: str
-        Type of percentage you want to show on the graph
-
-    """
-    sites = df["site.name"].unique()
-    n_sites = len(sites)
-    fig, axs = plt.subplots(n_sites, 1, figsize=(14, 2.5 * n_sites), sharex=True)
-    if n_sites == 1:
-        axs = [axs]
-    for i, site in enumerate(sorted(sites)):
-        site_data = df[df["site.name"] == site]
-        ax = axs[i]
-        ax.bar(
-            site_data["Year"],
-            site_data[metric],
-            label=f"Site {site}",
-            color=site_colors.get(site, "gray"),
-        )
-        ax.set_title(f"{site}")
-        ax.set_ylim(0, max(df[metric]) + 0.2)
-        ax.set_ylabel(metric)
-        if i != 3:
-            ax.set_xlabel("")
-        else:
-            ax.set_xlabel("Year")
-        if metric in {"%buzzes", "FBR"}:
-            for _, bar in enumerate(ax.patches):
-                bar.set_hatch("/")
-    fig.suptitle(f"{metric} per year", fontsize=16)
-    plt.show()
-
-
-def ym_percent(df: DataFrame, metric: str) -> None:
-    """Plot a graph with the percentage of DPM per site/month-year.
-
-    Parameters
-    ----------
-    df: DataFrame
-        All percentages grouped by site and month per year
-    metric: str
-        Type of percentage you want to show on the graph
-
-    """
-    sites = df["site.name"].unique()
-    n_sites = len(sites)
-    fig, axs = plt.subplots(n_sites, 1, figsize=(14, 2.5 * n_sites), sharex=True)
-    if n_sites == 1:
-        axs = [axs]
-    for i, site in enumerate(sorted(sites)):
-        site_data = df[df["site.name"] == site]
-        ax = axs[i]
-        bar_colors = site_data["Season"].map(season_color).fillna("gray")
-        ax.bar(
-            site_data["YM"],
-            site_data[metric],
-            label=f"Site {site}",
-            color=bar_colors,
-            width=25,
-        )
-        ax.set_title(f"{site}")
-        ax.set_ylim(0, max(df[metric]) + 0.2)
-        ax.set_ylabel(metric)
-        if i != 3:
-            ax.set_xlabel("")
-        else:
-            ax.set_xlabel("Months")
-        if metric in {"%buzzes", "FBR"}:
-            for _, bar in enumerate(ax.patches):
-                bar.set_hatch("/")
-    legend_elements = [
-        patches.Patch(facecolor=col, edgecolor="black", label=season.capitalize())
-        for season, col in season_color.items()
-    ]
-    fig.legend(
-        handles=legend_elements,
-        loc="upper right",
-        title="Seasons",
-        bbox_to_anchor=(0.95, 0.95),
-    )
-    fig.suptitle(f"{metric} per month", fontsize=16)
-    plt.show()
-
-
-def week_percent(df: DataFrame, metric: str) -> None:
-    """Plot a graph with the percentage of DPM per site/month-year.
-
-    Parameters
-    ----------
-    df: DataFrame
-        All percentages grouped by site and month per year
-    metric: str
-        Type of percentage you want to show on the graph
-
-    """
-    sites = df["site.name"].unique()
-    n_sites = len(sites)
-    fig, axs = plt.subplots(n_sites, 1, figsize=(15, 3 * n_sites), sharex=True)
-    if n_sites == 1:
-        axs = [axs]
-
-    for i, site in enumerate(sorted(sites)):
-        site_data = df[df["site.name"] == site].copy()
-        ax = axs[i]
-
-        # Masque pour identifier les NAs
-        na_mask = site_data["DPM"].isna()
-
-        # Définir la limite Y
-        ymax = max(df[metric].dropna()) + 0.2 if not df[metric].dropna().empty else 1
-        ax.set_ylim(0, ymax)
-
-        # Tracer les rectangles pour les périodes de NAs
-        na_dates = site_data.loc[na_mask, "start_datetime"]
-        if len(na_dates) > 0:
-            na_groups = []
-            current_group = [na_dates.iloc[0]]
-
-            for j in range(1, len(na_dates)):
-                # Vérifier si les semaines sont consécutives (~7 jours)
-                if (na_dates.iloc[j] - current_group[-1]).days < 10:
-                    current_group.append(na_dates.iloc[j])
-                else:
-                    na_groups.append(current_group)
-                    current_group = [na_dates.iloc[j]]
-            na_groups.append(current_group)
-
-            # Créer les rectangles
-            for group in na_groups:
-                start = group[0] - DateOffset(days=3.5)  # Centrer sur la semaine
-                width = len(group) * 7 + 2  # Largeur en jours
-                rect = patches.Rectangle(
-                    (mdates.date2num(start), 0),
-                    width,
-                    ymax,
-                    linewidth=1,
-                    edgecolor="gray",
-                    facecolor="lightgray",
-                    alpha=0.3,
-                    label="Pas de données"
-                    if (i == 0 and group == na_groups[0])
-                    else "",
-                )
-                ax.add_patch(rect)
-
-        # Tracer les barres avec données
-        bar_colors = site_data.loc[~na_mask, "Season"].map(season_color).fillna("gray")
-        bars = ax.bar(
-            site_data.loc[~na_mask, "start_datetime"],
-            site_data.loc[~na_mask, metric],
-            label=f"Site {site}",
-            color=bar_colors,
-            width=6,  # Largeur adaptée pour les semaines
-        )
-
-        # Ajouter des hachures si nécessaire
-        if metric in {"%buzzes", "FBR"}:
-            for bar in bars:
-                bar.set_hatch("/")
-
-        ax.set_title(f"{site}")
-        ax.set_ylabel(metric)
-        if i != n_sites - 1:
-            ax.set_xlabel("")
-        else:
-            ax.set_xlabel("Week")
-
-    # Légende des saisons
-    legend_elements = [
-        patches.Patch(facecolor=col, edgecolor="black", label=season.capitalize())
-        for season, col in season_color.items()
-    ]
-
-    # Ajouter "Pas de données" à la légende si des NAs existent
-    if df["DPM"].isna().any():
-        legend_elements.append(
-            patches.Patch(
-                facecolor="lightgray",
-                edgecolor="gray",
-                alpha=0.3,
-                label="Pas de données",
-            ),
-        )
-
-    fig.legend(
-        handles=legend_elements,
-        loc="upper right",
-        title="Seasons",
-        bbox_to_anchor=(0.95, 0.95),
-    )
-    fig.suptitle(f"{metric} per week", fontsize=16)
-
-    # Formatage de l'axe X
-    axs[-1].xaxis.set_major_locator(mdates.MonthLocator(interval=1))
-    axs[-1].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    fig.autofmt_xdate()
-
-    plt.tight_layout()
-    plt.show()
-
-
-def month_percent(df: DataFrame, metric: str) -> None:
-    """Plot a graph with the percentage of minutes positive to detection per site/month.
-
-    Parameters
-    ----------
-    df: DataFrame
-        All percentages grouped by site and month
-    metric: str
-        Type of percentage you want to show on the graph
-
-    """
-    sites = df["site.name"].unique()
-    n_sites = len(sites)
-    fig, axs = plt.subplots(n_sites, 1, figsize=(14, 2.5 * n_sites), sharex=True)
-    if n_sites == 1:
-        axs = [axs]
-    for i, site in enumerate(sorted(sites)):
-        site_data = df[df["site.name"] == site]
-        ax = axs[i]
-        ax.bar(
-            site_data["Month"],
-            site_data[metric],
-            label=f"Site {site}",
-            color=site_colors.get(site, "gray"),
-        )
-        ax.set_title(f"{site} - Percentage of minutes positive to detection per month")
-        ax.set_ylim(0, max(df[metric]) + 0.2)
-        ax.set_ylabel(metric)
-        ax.set_xticks(
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-            [
-                "Jan",
-                "Feb",
-                "Mar",
-                "Apr",
-                "May",
-                "Jun",
-                "Jul",
-                "Agu",
-                "Sep",
-                "Oct",
-                "Nov",
-                "Dec",
-            ],
-        )
-        if i != 3:
-            ax.set_xlabel("")
-        else:
-            ax.set_xlabel("Months")
-        if metric in {"%buzzes", "FBR"}:
-            for _, bar in enumerate(ax.patches):
-                bar.set_hatch("/")
-    fig.suptitle(f"{metric} per month", fontsize=16)
-    plt.show()
-
-
-def day_percent(df: DataFrame, metric: str) -> None:
-    """Plot a graph with the percentage of DPM per site/month-year.
-
-    Parameters
-    ----------
-    df: DataFrame
-        All percentages grouped by site and month per year
-    metric: str
-        Type of percentage you want to show on the graph
-
-    """
-    sites = df["site.name"].unique()
-    n_sites = len(sites)
-    fig, axs = plt.subplots(n_sites, 1, figsize=(14, 2.5 * n_sites), sharex=True)
-    if n_sites == 1:
-        axs = [axs]
-    for i, site in enumerate(sorted(sites)):
-        site_data = df[df["site.name"] == site]
-        ax = axs[i]
-        bar_colors = site_data["Season"].map(season_color).fillna("gray")
-        ax.bar(
-            site_data["Date"],
-            site_data[metric],
-            label=f"Site {site}",
-            color=bar_colors,
-        )
-        ax.set_title(f"{site}")
-        ax.set_ylim(0, max(df[metric]) + 0.2)
-        ax.set_ylabel(metric)
-        if i != 3:
-            ax.set_xlabel("")
-        else:
-            ax.set_xlabel("Months")
-        if metric in {"%buzzes", "FBR"}:
-            for _, bar in enumerate(ax.patches):
-                bar.set_hatch("/")
-    legend_elements = [
-        patches.Patch(facecolor=col, edgecolor="black", label=season.capitalize())
-        for season, col in season_color.items()
-    ]
-    fig.legend(
-        handles=legend_elements,
-        loc="upper right",
-        title="Seasons",
-        bbox_to_anchor=(0.95, 0.95),
-    )
-    fig.suptitle(f"{metric} per month", fontsize=16)
-    plt.show()
-
-
-def hour_percent(df: DataFrame, metric: str) -> None:
-    """Plot a graph with the percentage of minutes positive to detection per site/hour.
-
-    Parameters
-    ----------
-    df: DataFrame
-        All percentages grouped by site and hour
-    metric: str
-        Type of percentage you want to show on the graph
-
-    """
-    sites = df["site.name"].unique()
-    n_sites = len(sites)
-    fig, axs = plt.subplots(n_sites, 1, figsize=(14, 2.5 * n_sites), sharex=True)
-    if n_sites == 1:
-        axs = [axs]
-    for i, site in enumerate(sorted(sites)):
-        site_data = df[df["site.name"] == site]
-        ax = axs[i]
-        ax.bar(
-            site_data["Hour"],
-            site_data[metric],
-            label=f"Site {site}",
-            color=site_colors.get(site, "gray"),
-        )
-        ax.set_title(
-            f"Site {site} - Percentage of minutes positive to detection per hour",
-        )
-        ax.set_ylim(0, max(df[metric]) + 0.2)
-        ax.set_ylabel(metric)
-        if i != 3:
-            ax.set_xlabel("")
-        else:
-            ax.set_xlabel("Hour")
-        if metric in {"%buzzes", "FBR"}:
-            for _, bar in enumerate(ax.patches):
-                bar.set_hatch("/")
-    fig.suptitle(f"{metric} per hour", fontsize=16)
+    plt.setp(ax.get_xticklabels(), rotation=45)
     plt.show()
 
 
 def calendar(
-    meta: DataFrame,
     data: DataFrame,
 ) -> None:
-    """Produce the calendar of the given data.
+    """Produce the calendar of the given data. Deployments and actual collection of data.
 
     Parameters
     ----------
-    meta: DataFrame
-        metadatax file
     data: DataFrame
-        cpod file from all sites and phases
+        Custom file containing all beginning and end of deployment and recordings.
 
     """
-    # format the dataframe
-    meta["deployment_date"] = to_datetime(meta["deployment_date"])
-    meta["recovery_date"] = to_datetime(meta["recovery_date"])
-    meta = meta.sort_values(["deploy.name", "deployment_date"]).reset_index(drop=True)
-    data = data.sort_values(["deploy.name", "Deb"]).reset_index(drop=True)
-    df_fusion = data.merge(
-        meta[["deploy.name", "deployment_date", "recovery_date"]],
-        on=["deploy.name"],
-        how="outer",
-    )
+    for i in data["Site"].unique():
+        mask = data["Site"] == i
+        data["start_recording"] = to_datetime(data["start_recording"])
+        data["end_recording"] = to_datetime(data["end_recording"])
+        data["start_deployment"] = to_datetime(data["start_deployment"])
+        data["end_deployment"] = to_datetime(data["end_deployment"])
 
-    df_fusion["Deb"] = df_fusion["Deb"].fillna(df_fusion["deployment_date"])
-    df_fusion["Fin"] = df_fusion["Fin"].fillna(df_fusion["deployment_date"])
+        data.loc[
+            mask & (data["start_recording"] < data["start_deployment"]),
+            "start_recording",
+        ] = data.loc[
+            mask & (data["start_recording"] < data["start_deployment"]),
+            "start_deployment",
+        ]
 
-    df_fusion[["Site", "Phase"]] = df_fusion["deploy.name"].str.split("_", expand=True)
-    df_fusion["color"] = df_fusion["Site"].map(site_colors)
+        data.loc[
+            mask & (data["end_recording"] > data["end_deployment"]),
+            "end_recording"] = data.loc[
+            mask & (data["end_recording"] > data["end_deployment"]), "end_deployment"]
+
+        data.loc[mask & (data["start_recording"] > data["end_recording"]),
+        ["start_recording", "end_recording"]] = None
+        data = data.sort_values(["Phase", "start_deployment"]).reset_index(drop=True)
+
+    data["color"] = data["Site"].map(site_colors)
 
     # Create the figure
     fig, ax = plt.subplots(figsize=(14, 4))
 
-    sites = sorted(df_fusion["Site"].unique(), reverse=True)
+    sites = sorted(data["Site"].unique(), reverse=True)
     site_mapping = {site: idx for idx, site in enumerate(sites)}
 
-    for _, row in df_fusion.iterrows():
+    for _, row in data.iterrows():
         y_pos = site_mapping[row["Site"]]
         ax.broken_barh(
-            [(row["deployment_date"], row["recovery_date"] - row["deployment_date"])],
+            [
+                (
+                    row["start_deployment"],
+                    row["end_deployment"] - row["start_deployment"],
+                ),
+            ],
             (y_pos - 0.3, 0.6),
             facecolors="#F5F5F5",
             edgecolors="black",
             linewidth=0.8,
         )
 
-        if notna(row["Deb"]) and notna(row["Fin"]) and row["Fin"] > row["Deb"]:
+        if (notna(row["start_recording"]) and notna(row["end_recording"]) and
+                row["end_recording"] > row["start_recording"]):
             ax.broken_barh(
-                [(row["Deb"], row["Fin"] - row["Deb"])],
+                [(row["start_recording"],
+                  row["end_recording"] - row["start_recording"])],
                 (y_pos - 0.15, 0.3),
                 facecolors=row["color"],
                 edgecolors="black",
@@ -971,308 +625,36 @@ def calendar(
             )
 
     ax.set_yticks(range(len(sites)))
-    ax.set_yticklabels(sites, fontsize=12)
+    ax.set_yticklabels(sites, fontsize=15)
 
-    legend_elements = [
-        patches.Patch(facecolor="#F5F5F5", edgecolor="black", label="Deployment"),
-    ]
-    for site, color in site_colors.items():
-        if site in sites:
-            legend_elements.append(
-                patches.Patch(facecolor=color, edgecolor="black", label=f"{site}"),
-            )
-
-    ax.legend(handles=legend_elements, loc="upper left", fontsize=11, frameon=True)
-    # Layout final
-    plt.xticks(fontsize=12)
+    plt.xticks(fontsize=15)
     plt.tight_layout()
     plt.show()
 
 
-def hist_mean_m(
-    df: DataFrame,
-    metric_mean: str,
-    metric_std: str,
-    y_lab: str | None = None,
-    title_suffix: str | None = None,
-) -> None:
-    """Produce a histogram of the given data.
-
-    It shows mean and standard deviation of the metric.
+def matrice_hist(df: DataFrame, unit: str, metric: str) -> None:
+    """Plot a graph with the percentage of minutes positive to detection for every site.
 
     Parameters
     ----------
     df: DataFrame
-        All data grouped by site and month
-    metric_mean: str
-        Column name for the mean values (e.g., "%click_mean")
-    metric_std: str
-        Column name for the standard deviation values (e.g., "%click_std")
-    y_lab: str, optional
-        Label for y-axis. If None, uses metric_mean
-    title_suffix: str, optional
-        Suffix for the main title. If None, uses metric_mean
+        All percentages grouped by site
+    unit: str
+        Time unit you want to group your data in
+    metric: str
+        Type of percentage you want to show on the graph
 
     """
-    sites = df["site.name"].unique()
-    n_sites = len(sites)
-    fig, axs = plt.subplots(n_sites, 1, figsize=(14, 3 * n_sites), sharex=True)
-    if n_sites == 1:
-        axs = [axs]
-
-    # Calculate max for y-axis scaling
-    max_value = max(df[metric_mean] + df[metric_std])
-
-    for i, site in enumerate(sorted(sites)):
-        site_data = df[df["site.name"] == site]
-        ax = axs[i]
-
-        ax.bar(
-            x=site_data["Month"],
-            height=site_data[metric_mean],
-            yerr=site_data[metric_std],
-            capsize=4,
-            color=site_colors.get(site, "gray"),
-            alpha=0.8,
-            edgecolor="black",
-            linewidth=0.5,
-            label=f"Site {site}",
-        )
-
-        ax.set_title(f"{site}", fontsize=12)
-        ax.set_ylim(0, max_value * 1.1)
-        ax.set_ylabel(y_lab or metric_mean, fontsize=10)
-
-        # Only set x-label on last subplot
-        if i == n_sites - 1:
-            ax.set_xlabel("Mois", fontsize=10)
-            ax.set_xticks(
-                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                [
-                    "Jan",
-                    "Fev",
-                    "Mar",
-                    "Avr",
-                    "Mai",
-                    "Jun",
-                    "Jul",
-                    "Aou",
-                    "Sep",
-                    "Oct",
-                    "Nov",
-                    "Dec",
-                ],
-            )
-        if metric_mean in {"%buzzes_mean", "FBR_mean"}:
-            for _, bar in enumerate(ax.patches):
-                bar.set_hatch("/")
-
-    fig.suptitle(f"{title_suffix or metric_mean} per month", fontsize=16)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()
-
-
-def hist_mean_h(
-    df: DataFrame,
-    metric_mean: str,
-    metric_std: str,
-    y_lab: str | None = None,
-    title_suffix: str | None = None,
-) -> None:
-    """Produce a histogram of the given data.
-
-    It shows mean and standard deviation of the metric.
-
-    Parameters
-    ----------
-    df: DataFrame
-        All data grouped by site and month
-    metric_mean: str
-        Column name for the mean values (e.g., "%click_mean")
-    metric_std: str
-        Column name for the standard deviation values (e.g., "%click_std")
-    y_lab: str, optional
-        Label for y-axis. If None, uses metric_mean
-    title_suffix: str, optional
-        Suffix for the main title. If None, uses metric_mean
-
-    """
-    sites = df["site.name"].unique()
-    n_sites = len(sites)
-    fig, axs = plt.subplots(n_sites, 1, figsize=(14, 5 * n_sites), sharex=True)
-    if n_sites == 1:
-        axs = [axs]
-
-    # Calculate max for y-axis scaling
-    max_value = max(df[metric_mean] + df[metric_std])
-
-    for i, site in enumerate(sorted(sites)):
-        site_data = df[df["site.name"] == site]
-        ax = axs[i]
-
-        ax.bar(
-            x=site_data["Hour"],
-            height=site_data[metric_mean],
-            yerr=site_data[metric_std],
-            capsize=4,
-            color=site_colors.get(site, "gray"),
-            alpha=0.8,
-            edgecolor="black",
-            linewidth=0.5,
-            label=f"Site {site}",
-        )
-
-        ax.set_title(f"{site}", fontsize=12)
-        ax.set_ylim(0, max_value * 1.1)
-        ax.set_ylabel(y_lab or metric_mean, fontsize=10)
-        ax.set_xticks(range(24))
-
-        # Only set x-label on last subplot
-        if i == n_sites - 1:
-            ax.set_xlabel("Heure", fontsize=10)
-        if metric_mean in {"%buzzes_mean", "FBR_mean"}:
-            for _, bar in enumerate(ax.patches):
-                bar.set_hatch("/")
-
-    fig.suptitle(f"{title_suffix or metric_mean} per hour", fontsize=16)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()
-
-
-def hist_mean_s(
-    df: DataFrame,
-    metric_mean: str,
-    metric_std: str,
-    y_lab: str | None = None,
-    title_suffix: str | None = None,
-) -> None:
-    """Plot bar chart with mean values and error bars (std) per site.
-
-    Parameters
-    ----------
-    df: DataFrame
-        All data grouped by site
-    metric_mean: str
-        Column name for the mean values (e.g., "FBR_mean")
-    metric_std: str
-        Column name for the standard deviation values (e.g., "FBR_std")
-    y_lab: str, optional
-        Label for y-axis. If None, uses metric_mean
-    title_suffix: str, optional
-        Suffix for the title. If None, uses metric_mean
-
-    """
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    # Group by site and calculate means if needed
-    plot_data = df.groupby("site.name")[[metric_mean, metric_std]].mean().reset_index()
-
-    x_pos = range(len(plot_data))
-
-    # Create bars
-    ax.bar(
-        x=x_pos,
-        height=plot_data[metric_mean],
-        color=[site_colors.get(site, "gray") for site in plot_data["site.name"]],
-        alpha=0.8,
-        edgecolor="black",
-        linewidth=0.5,
-    )
-
-    # Add hatching if requested
-    if metric_mean in {"%buzzes_mean", "FBR_mean"}:
+    fig, ax = plt.subplots()
+    ax.bar(df[unit], df[f"{metric}_mean"], color="#0072b2")
+    ax.set_xlabel(f"{unit}")
+    ax.set_ylabel(f"{metric}")
+    plt.errorbar(df[unit], df[f"{metric}_mean"], df[f"{metric}_std"],
+                 fmt=".", color="Black", elinewidth=2, capthick=10,
+                 errorevery=1, alpha=0.5, ms=4, capsize=2)
+    ax.set_ylim(0, max(df[f"{metric}_mean"] + df[f"{metric}_std"]) * 1.1)
+    if metric in {"%buzzes", "FBR"}:
         for _, bar in enumerate(ax.patches):
             bar.set_hatch("/")
-
-    # Add error bars
-    for i, (_, row) in enumerate(plot_data.iterrows()):
-        # Ensure error bar doesn't go below zero
-        yerr_lower = min(row[metric_mean], row[metric_std])
-        yerr_upper = row[metric_std]
-        ax.errorbar(
-            i,
-            row[metric_mean],
-            yerr=[[yerr_lower], [yerr_upper]],
-            fmt="none",
-            color="black",
-            capsize=5,
-            linewidth=2,
-        )
-
-    ax.set_xticks(x_pos)
-    ax.set_xticklabels(plot_data["site.name"])
-    ax.set_title(f"{title_suffix or metric_mean} per site", fontsize=12)
-    ax.set_ylabel(y_lab or metric_mean, fontsize=10)
-    ax.set_xlabel("Site", fontsize=10)
-
-    plt.tight_layout()
-    plt.show()
-
-
-def hist_mean_season(
-    df: DataFrame,
-    metric_mean: str,
-    metric_std: str,
-    y_lab: str | None = None,
-    title_suffix: str | None = None,
-) -> None:
-    """Produce a histogram of the given data.
-
-    It shows mean and standard deviation of the metric.
-
-    Parameters
-    ----------
-    df: DataFrame
-        All data grouped by site and month
-    metric_mean: str
-        Column name for the mean values (e.g., "%click_mean")
-    metric_std: str
-        Column name for the standard deviation values (e.g., "%click_std")
-    y_lab: str, optional
-        Label for y-axis. If None, uses metric_mean
-    title_suffix: str, optional
-        Suffix for the main title. If None, uses metric_mean
-
-    """
-    sites = df["site.name"].unique()
-    n_sites = len(sites)
-    fig, axs = plt.subplots(n_sites, 1, figsize=(14, 5 * n_sites), sharex=True)
-    if n_sites == 1:
-        axs = [axs]
-
-    # Calculate max for y-axis scaling
-    max_value = max(df[metric_mean] + df[metric_std])
-
-    for i, site in enumerate(sorted(sites)):
-        site_data = df[df["site.name"] == site]
-        ax = axs[i]
-
-        ax.bar(
-            x=site_data["Season"],
-            height=site_data[metric_mean],
-            yerr=site_data[metric_std],
-            capsize=4,
-            color=site_colors.get(site, "gray"),
-            alpha=0.8,
-            edgecolor="black",
-            linewidth=0.5,
-            label=f"Site {site}",
-        )
-
-        ax.set_title(f"{site}", fontsize=12)
-        ax.set_ylim(0, max_value * 1.1)
-        ax.set_ylabel(y_lab or metric_mean, fontsize=10)
-
-        # Only set x-label on last subplot
-        if i == n_sites - 1:
-            ax.set_xlabel("Season", fontsize=10)
-        if metric_mean in {"%buzzes_mean", "FBR_mean"}:
-            for _, bar in enumerate(ax.patches):
-                bar.set_hatch("/")
-
-    fig.suptitle(f"{title_suffix or metric_mean} per season", fontsize=16)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
     plt.show()
