@@ -175,7 +175,7 @@ def load_glider_nav(directory: Path) -> DataFrame:
         msg = f"Directory '{directory}' does not exist."
         raise FileNotFoundError(msg)
 
-    file = [f for f in directory.glob("*.gz") if "gli" in f.name]
+    file = [f for f in directory.rglob("*.gz") if "gli" in f.name]
 
     if not len(file) > 0:
         msg = f"Directory '{directory}' does not contain '.gz' files."
