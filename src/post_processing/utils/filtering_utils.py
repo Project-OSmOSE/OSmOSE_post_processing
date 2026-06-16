@@ -79,8 +79,6 @@ def filter_strong_detection(
     """
     if "type" in df.columns:
         df = df[df["type"] == "WEAK"]
-    elif "is_box" in df.columns:
-        df = df[df["is_box"] == 0]
     else:
         msg = "Could not determine annotation type."
         raise ValueError(msg)
@@ -114,15 +112,9 @@ def filter_by_time(
     """
     if begin is not None:
         df = df[df["start_datetime"] >= begin]
-        if df.empty:
-            msg = f"No detection found after '{begin}'."
-            raise ValueError(msg)
 
     if end is not None:
         df = df[df["end_datetime"] <= end]
-        if df.empty:
-            msg = f"No detection found before '{end}'."
-            raise ValueError(msg)
 
     return df
 
@@ -218,47 +210,43 @@ def filter_by_freq(
 
     """
     if f_min is not None:
-        df = df[df["start_frequency"] >= f_min]
+        df = df[df["min_frequency"] >= f_min]
         if df.empty:
             msg = f"No detection found above {f_min}Hz."
             raise ValueError(msg)
 
     if f_max is not None:
-        df = df[df["end_frequency"] <= f_max]
+        df = df[df["max_frequency"] <= f_max]
         if df.empty:
             msg = f"No detection found below {f_max}Hz."
             raise ValueError(msg)
     return df
 
 
-def filter_by_score(df: DataFrame, score: float) -> DataFrame:
-    """Filter detections by confidence score.
+def filter_by_confidence(df: DataFrame, confidence: float) -> DataFrame:
+    """Filter detections by confidence.
 
     Parameters
     ----------
     df : DataFrame
-        APLOSE-formatted DataFrame containing a 'score' column.
-    score : float
-        The minimum confidence score threshold (inclusive).
+        APLOSE-formatted DataFrame containing a 'confidence' column.
+    confidence : float
+        The minimum confidence threshold (inclusive).
 
     Returns
     -------
     DataFrame
-        Filtered DataFrame containing only detections with score >= min_score.
+        Filtered DataFrame containing only detections with confidence >= min_confidence.
 
     """
-    if not score:
+    if not confidence:
         return df
 
-    if "score" not in df.columns:
-        msg = "'score' column not present if DataFrame."
+    if "confidence" not in df.columns:
+        msg = "'confidence' column not present if DataFrame."
         raise ValueError(msg)
 
-    df = df[df["score"] >= score]
-    if df.empty:
-        msg = f"No detection found with score above {score}."
-        raise ValueError(msg)
-    return df
+    return df[df["confidence"] >= confidence]
 
 
 def read_dataframe(file: Path, rows: int | None = None) -> DataFrame:
@@ -278,36 +266,40 @@ def read_dataframe(file: Path, rows: int | None = None) -> DataFrame:
     )
 
 
-def get_annotators(df: DataFrame) -> list[str]:
+def get_annotators(df: DataFrame) -> str | list[str]:
     """Return the annotator list of APLOSE DataFrame."""
-    if len(df) == 1:
-        return df["annotator"][0]
+    if df.empty:
+        return []
     annotators = sorted(set(df["annotator"]))
     return annotators if len(annotators) > 1 else annotators[0]
 
 
 def get_labels(df: DataFrame) -> str | list[str]:
     """Return the label list of APLOSE DataFrame."""
-    if len(df) == 1:
-        return df["annotation"][0]
+    if df.empty:
+        return []
     labels = sorted(set(df["annotation"]))
     return labels if len(labels) > 1 else labels[0]
 
 
 def get_max_freq(df: DataFrame) -> float:
     """Return the maximum frequency of APLOSE DataFrame."""
-    return df["end_frequency"].max()
+    if df.empty:
+        return []
+    return df["max_frequency"].max()
 
 
 def get_max_time(df: DataFrame) -> float:
     """Return the maximum time of APLOSE DataFrame."""
+    if df.empty:
+        return []
     return df["end_time"].max()
 
 
 def get_dataset(df: DataFrame) -> str | list[str]:
     """Return dataset list  of APLOSE DataFrame."""
-    if len(df) == 1:
-        return df["dataset"][0]
+    if df.empty:
+        return []
     datasets = sorted(set(df["dataset"]))
     return datasets if len(datasets) > 1 else datasets[0]
 
@@ -443,8 +435,8 @@ def _create_result_dataframe(
         "filename": file_vector,
         "start_time": [0] * len(file_vector),
         "end_time": [timebin_new.total_seconds()] * len(file_vector),
-        "start_frequency": [0] * len(file_vector),
-        "end_frequency": [max_freq] * len(file_vector),
+        "min_frequency": [0] * len(file_vector),
+        "max_frequency": [max_freq] * len(file_vector),
         "annotation": [label] * len(file_vector),
         "annotator": [annotator] * len(file_vector),
         "start_datetime": start_datetime,
@@ -545,8 +537,7 @@ def reshape_timebin(
 
     """
     if df.empty:
-        msg = "DataFrame is empty"
-        raise ValueError(msg)
+        return df
 
     if not timebin_new:
         return df
@@ -648,13 +639,17 @@ def load_detections(filters: DetectionFilter) -> DataFrame:
 
     """
     df = read_dataframe(filters.detection_file)
+
+    if df.empty:
+        return df
+
     if filters.box:
         df = filter_strong_detection(df)
     df = filter_by_time(df, filters.begin, filters.end)
     df = filter_by_annotator(df, annotator=filters.annotator)
     df = filter_by_label(df, label=filters.annotation)
     df = filter_by_freq(df, filters.f_min, filters.f_max)
-    df = filter_by_score(df, filters.score)
+    df = filter_by_confidence(df, filters.confidence)
     filename_ts = get_filename_timestamps(df, filters.filename_format)
     df = reshape_timebin(
         df,
@@ -733,14 +728,13 @@ def add_weak_detection(
                         "start_time": 0,
                         "end_time": max_time.total_seconds(),
                         "min_frequency": 0,
-                        "start_frequency": 0,
                         "max_frequency": max_freq,
-                        "end_frequency": max_freq,
                         "annotation": lbl,
                         "annotator": ant,
                         "start_datetime": strftime_osmose_format(start_datetime),
                         "end_datetime": strftime_osmose_format(end_datetime),
                         "type": "WEAK",
+                        "confidence": None,
                     })
                     new_row_df = DataFrame([new_row])
                     df = concat([df, new_row_df], ignore_index=True)

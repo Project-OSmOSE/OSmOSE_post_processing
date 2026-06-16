@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from copy import copy
 from pathlib import Path
 from typing import ContextManager
@@ -248,13 +249,13 @@ def test_concat(sample_yaml: Path, sample_df: DataFrame) -> None:
         pytest.param(
             Timestamp("2025-01-26T06:20:09.999+00:00"),
             None,
-            pytest.raises(ValueError, match=r"DataFrame is empty after reshaping."),
+            nullcontext(),
             id="new_begin_after_original_end",
         ),
         pytest.param(
             None,
             Timestamp("2025-01-25T06:20:00.001+00:00"),
-            pytest.raises(ValueError, match=r"DataFrame is empty after reshaping."),
+            nullcontext(),
             id="new_end_before_original_begin",
         ),
         pytest.param(
@@ -268,13 +269,13 @@ def test_concat(sample_yaml: Path, sample_df: DataFrame) -> None:
         pytest.param(
             Timestamp("2050-01-01", tz="UTC"),
             Timestamp("2050-12-31", tz="UTC"),
-            pytest.raises(ValueError, match=r"DataFrame is empty after reshaping."),
+            nullcontext(),
             id="tz_aware_future_range_no_data",
         ),
         pytest.param(
             Timestamp("1990-01-01", tz="America/New_York"),
             Timestamp("1990-12-31", tz="America/New_York"),
-            pytest.raises(ValueError, match=r"DataFrame is empty after reshaping."),
+            nullcontext(),
             id="tz_aware_past_range_no_data",
         ),
     ],

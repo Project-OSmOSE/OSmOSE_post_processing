@@ -25,7 +25,6 @@ from post_processing import logger
 from post_processing.utils.core_utils import get_coordinates, get_sun_times
 
 if TYPE_CHECKING:
-
     import pytz
 
 
@@ -73,13 +72,13 @@ def fpod2aplose(
         "filename": [""] * len(df),
         "start_time": [0] * len(df),
         "end_time": [bin_size] * len(df),
-        "start_frequency": [0] * len(df),
-        "end_frequency": [0] * len(df),
+        "min_frequency": [0] * len(df),
+        "max_frequency": [0] * len(df),
         "annotation": [annotation] * len(df),
         "annotator": ["FPOD"] * len(df),
         "start_datetime": [strftime_osmose_format(entry) for entry in fpod_start_dt],
         "end_datetime": [strftime_osmose_format(entry) for entry in fpod_end_dt],
-        "is_box": [0] * len(df),
+        "type": [0] * len(df),
     }
 
     return DataFrame(data)
@@ -420,7 +419,9 @@ def generate_hourly_detections(meta: DataFrame, site: str) -> DataFrame:
         {"name": row["name"], "start_datetime": date}
         for _, row in df_meta.iterrows()
         for date in date_range(
-            start=row["deployment_date"], end=row["recovery_date"], freq="h",
+            start=row["deployment_date"],
+            end=row["recovery_date"],
+            freq="h",
         )
     ]
 
@@ -491,20 +492,30 @@ def feeding_buzz(df: DataFrame, species: str) -> DataFrame:
     col2 = "HEURE MINUTE"
     if col in df.columns:
         df[["DATE", "HEURE", "MINUTE"]] = df[col].str.split(" ", expand=True)
-        df["Time"] = (df["DATE"].astype(str) + " " +
-                      df["HEURE"].astype(str) + ":" +
-                      df["MINUTE"].astype(str) + ":" +
-                      df["MICROSEC"].astype(str))
+        df["Time"] = (
+            df["DATE"].astype(str)
+            + " "
+            + df["HEURE"].astype(str)
+            + ":"
+            + df["MINUTE"].astype(str)
+            + ":"
+            + df["MICROSEC"].astype(str)
+        )
         df["Time"] = to_datetime(df["Time"], dayfirst=True)
     elif col2 in df.columns:
         df[["HEURE", "MINUTE"]] = df[col2].str.split(" ", expand=True)
-        df["Time"] = (df["DATE"].astype(str) + " " +
-                      df["HEURE"].astype(str) + ":" +
-                      df["MINUTE"].astype(str) + ":" +
-                      df["MICROSEC"].astype(str))
+        df["Time"] = (
+            df["DATE"].astype(str)
+            + " "
+            + df["HEURE"].astype(str)
+            + ":"
+            + df["MINUTE"].astype(str)
+            + ":"
+            + df["MICROSEC"].astype(str)
+        )
         df["Time"] = to_datetime(df["Time"], dayfirst=True)
     else:
-        df["Time"] = (df["MINUTE"].astype(str) + ":" + df["MICROSEC"].astype(str))
+        df["Time"] = df["MINUTE"].astype(str) + ":" + df["MICROSEC"].astype(str)
         df["Time"] = to_datetime(df["Time"], dayfirst=True)
 
     df = df.sort_values(by="Time").reset_index(drop=True)
@@ -530,7 +541,7 @@ def feeding_buzz(df: DataFrame, species: str) -> DataFrame:
 
 
 def assign_daytime(
-        df: DataFrame,
+    df: DataFrame,
 ) -> DataFrame:
     """Assign datetime categories to events.
 
@@ -561,10 +572,10 @@ def assign_daytime(
         dpm_i = row["Time"]
         if notna(dpm_i):  # Check if time is not NaN
             jour_i = jour[
-                (jour["dusk"].dt.year == dpm_i.year) &
-                (jour["dusk"].dt.month == dpm_i.month) &
-                (jour["dusk"].dt.day == dpm_i.day)
-                ]
+                (jour["dusk"].dt.year == dpm_i.year)
+                & (jour["dusk"].dt.month == dpm_i.month)
+                & (jour["dusk"].dt.day == dpm_i.day)
+            ]
             if not jour_i.empty:  # Ensure there"s a matching row
                 jour_i = jour_i.iloc[0]  # Extract first match
                 if dpm_i <= jour_i["day"]:
@@ -665,12 +676,16 @@ def percent_calc(data: DataFrame, time_unit: str | None = None) -> DataFrame:
         group_cols.insert(0, time_unit)
 
     # Aggregate and compute metrics
-    df = data.groupby(group_cols).agg({
-        "DPH": "sum",
-        "DPM": "sum",
-        "Day": "size",
-        "Foraging": "sum",
-    }).reset_index()
+    df = (
+        data.groupby(group_cols)
+        .agg({
+            "DPH": "sum",
+            "DPM": "sum",
+            "Day": "size",
+            "Foraging": "sum",
+        })
+        .reset_index()
+    )
 
     df["%click"] = df["DPM"] * 100 / (df["Day"] * 60)
     df["%DPH"] = df["DPH"] * 100 / df["Day"]
@@ -690,12 +705,14 @@ def site_percent(df: DataFrame, metric: str) -> None:
         Type of percentage you want to show on the graph
 
     """
-    ax = sns.barplot(data=df, x="site.name",
-                     y=metric,
-                     hue="site.name",
-                     dodge=False,
-                     palette=colors,
-                     )
+    ax = sns.barplot(
+        data=df,
+        x="site.name",
+        y=metric,
+        hue="site.name",
+        dodge=False,
+        palette=colors,
+    )
     ax.set_title(f"{metric} per site")
     ax.set_ylabel(f"{metric}")
     if metric == "%buzzes":
@@ -723,11 +740,12 @@ def year_percent(df: DataFrame, metric: str) -> None:
     for i, site in enumerate(sorted(sites)):
         site_data = df[df["site.name"] == site]
         ax = axs[i]
-        ax.bar(site_data["Year"],
-               site_data[metric],
-               label=f"Site {site}",
-               color=colors.get(site, "gray"),
-               )
+        ax.bar(
+            site_data["Year"],
+            site_data[metric],
+            label=f"Site {site}",
+            color=colors.get(site, "gray"),
+        )
         ax.set_title(f"Site {site}")
         ax.set_ylim(0, max(df[metric]) + 0.2)
         ax.set_ylabel(metric)
@@ -761,19 +779,32 @@ def month_percent(df: DataFrame, metric: str) -> None:
     for i, site in enumerate(sorted(sites)):
         site_data = df[df["site.name"] == site]
         ax = axs[i]
-        ax.bar(site_data["Month"],
-               site_data[metric],
-               label=f"Site {site}",
-               color=colors.get(site, "gray"),
-               )
+        ax.bar(
+            site_data["Month"],
+            site_data[metric],
+            label=f"Site {site}",
+            color=colors.get(site, "gray"),
+        )
         ax.set_title(f"{site} - Percentage of postitive to detection minutes per month")
         ax.set_ylim(0, max(df[metric]) + 0.2)
         ax.set_ylabel(metric)
-        ax.set_xticks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                      ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                       "Jul", "Agu", "Sep", "Oct", "Nov", "Dec",
-                       ],
-                      )
+        ax.set_xticks(
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            [
+                "Jan",
+                "Feb",
+                "Mar",
+                "Apr",
+                "May",
+                "Jun",
+                "Jul",
+                "Agu",
+                "Sep",
+                "Oct",
+                "Nov",
+                "Dec",
+            ],
+        )
         if i != 3:
             ax.set_xlabel("")
         else:
@@ -804,11 +835,12 @@ def hour_percent(df: DataFrame, metric: str) -> None:
     for i, site in enumerate(sorted(sites)):
         site_data = df[df["site.name"] == site]
         ax = axs[i]
-        ax.bar(site_data["hour"],
-               site_data[metric],
-               label=f"Site {site}",
-               color=colors.get(site, "gray"),
-               )
+        ax.bar(
+            site_data["hour"],
+            site_data[metric],
+            label=f"Site {site}",
+            color=colors.get(site, "gray"),
+        )
         ax.set_title(f"Site {site} - Percentage of positive to detection per hour")
         ax.set_ylim(0, max(df[metric]) + 0.2)
         ax.set_ylabel(metric)
