@@ -104,7 +104,7 @@ def plot_detections_with_nav_data(
     labels = df["annotation"].unique()
 
     for annotation in labels:
-        df_1label = df[(df["annotation"] == annotation) & (df["is_box"] == 0)]
+        df_1label = df[(df["annotation"] == annotation) & (df["type"] == "BOX")]
 
         glider_timestamps_numeric = [int(ts.timestamp()) for ts in nav["Timestamp"]]
         detections_timestamps_numeric = [

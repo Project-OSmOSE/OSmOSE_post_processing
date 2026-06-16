@@ -35,7 +35,7 @@ def nav_df() -> DataFrame:
 def df_detections(nav_df: DataFrame) -> DataFrame:
     return DataFrame({
         "annotation": ["whale", "whale", "dolphin"],
-        "is_box": [0, 0, 0],
+        "type": [0, 0, 0],
         "start_datetime": nav_df["Timestamp"][:3],
     })
 
@@ -55,8 +55,8 @@ def test_get_position_from_timestamp(nav_df: DataFrame) -> None:
 
 
 def test_plot_detections_with_nav_data(
-        df_detections: DataFrame,
-        nav_df: DataFrame,
+    df_detections: DataFrame,
+    nav_df: DataFrame,
 ) -> None:
     plot_detections_with_nav_data(
         df=df_detections,
@@ -67,7 +67,9 @@ def test_plot_detections_with_nav_data(
 
 
 def test_load_glider_nav() -> None:
-    input_dir = Path(__file__).parent.parent / "user_case" / "resource" / "OHAGEODAMS_nav"
+    input_dir = (
+        Path(__file__).parent.parent / "user_case" / "resource" / "OHAGEODAMS_nav"
+    )
     df = load_glider_nav(input_dir)
     assert isinstance(df, DataFrame)
     assert "Lat" in df.columns
@@ -85,8 +87,9 @@ def test_load_glider_nav_no_files(tmp_path: Path) -> None:
         load_glider_nav(tmp_path)
 
 
-def test_compute_acoustic_diversity(df_detections: DataFrame,
-                                    nav_df: DataFrame) -> None:
+def test_compute_acoustic_diversity(
+    df_detections: DataFrame, nav_df: DataFrame
+) -> None:
     time_vector = list(nav_df["Timestamp"])
     result = compute_acoustic_diversity(df_detections, nav_df, time_vector)
     assert isinstance(result, DataFrame)

@@ -123,8 +123,10 @@ class DataAplose:
         ).reset_index(drop=True)
         self.annotators = sorted(set(self.df["annotator"])) if df is not None else None
         self.labels = sorted(set(self.df["annotation"])) if df is not None else None
-        self.begin = min(self.df["start_datetime"]) if begin is None else begin
-        self.end = max(self.df["end_datetime"]) if end is None else end
+        self.begin = (
+            min(self.df["start_datetime"], default=None) if begin is None else begin
+        )
+        self.end = max(self.df["end_datetime"], default=None) if end is None else end
         self.dataset = sorted(set(self.df["dataset"])) if df is not None else None
         self.lat = None
         self.lon = None
@@ -595,8 +597,7 @@ class DataAplose:
         ]
 
         if self.df.empty:
-            msg = "DataFrame is empty after reshaping."
-            raise ValueError(msg)
+            return self
 
         self.dataset = get_dataset(self.df)
         self.labels = get_labels(self.df)

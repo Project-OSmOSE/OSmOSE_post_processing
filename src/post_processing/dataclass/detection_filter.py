@@ -11,6 +11,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+import numpy as np
 import yaml
 from pandas import Timedelta, Timestamp
 
@@ -38,6 +39,7 @@ class DetectionFilter:
     score: float | None = None
     box: bool = False
     filename_format: str = None
+    confidence: float = None
 
     def __getitem__(self, key: str):
         """Return the value of the given key."""
@@ -88,10 +90,13 @@ class DetectionFilter:
         filters = []
         for detection_file, filters_dict in parameters.items():
             df_preview = read_dataframe(Path(detection_file), rows=5)
-            filters_dict["timebin_origin"] = Timedelta(
-                max(df_preview["end_time"]),
-                "s",
-            )
+            if df_preview.empty:
+                filters_dict["timebin_origin"] = np.nan
+            else:
+                filters_dict["timebin_origin"] = Timedelta(
+                    max(df_preview["end_time"]),
+                    "s",
+                )
             filters_dict["detection_file"] = Path(detection_file)
             if filters_dict.get("timebin_new"):
                 filters_dict["timebin_new"] = Timedelta(

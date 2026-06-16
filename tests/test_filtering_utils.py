@@ -13,7 +13,7 @@ from post_processing.utils.filtering_utils import (
     filter_by_annotator,
     filter_by_freq,
     filter_by_label,
-    filter_by_score,
+    filter_by_confidence,
     filter_by_time,
     filter_strong_detection,
     find_delimiter,
@@ -124,25 +124,27 @@ def test_filter_by_time_valid(sample_df: DataFrame, begin, end):
 
 
 @pytest.mark.parametrize(
-    "begin, end, expected_msg",
+    "begin, end",
     [
         pytest.param(
             Timestamp("2050-01-01", tz="utc"),
             None,
-            "No detection found after '2050",
             id="out_of_range_begin",
         ),
         pytest.param(
             None,
             Timestamp("1900-01-01", tz="utc"),
-            "No detection found before '1900",
             id="out_of_range_end",
         ),
     ],
 )
-def test_filter_by_time_out_of_range(sample_df: DataFrame, begin, end, expected_msg):
-    with pytest.raises(ValueError, match=expected_msg):
-        filter_by_time(sample_df, begin=begin, end=end)
+def test_filter_by_time_out_of_range(
+    sample_df: DataFrame,
+    begin: Timestamp,
+    end: Timestamp,
+) -> None:
+    df = filter_by_time(sample_df, begin=begin, end=end)
+    assert df.empty
 
 
 # filter_by_annotator
@@ -203,9 +205,9 @@ def test_filter_by_freq_valid(sample_df: DataFrame, f_min, f_max):
     assert not result.empty
 
     if f_min is not None:
-        assert (result["start_frequency"] >= f_min).all()
+        assert (result["min_frequency"] >= f_min).all()
     if f_max is not None:
-        assert (result["end_frequency"] <= f_max).all()
+        assert (result["max_frequency"] <= f_max).all()
 
 
 @pytest.mark.parametrize(
@@ -230,21 +232,21 @@ def test_filter_by_freq_out_of_range(sample_df: DataFrame, f_min, f_max, expecte
         filter_by_freq(sample_df, f_min=f_min, f_max=f_max)
 
 
-# filter_by_score
-def test_filter_by_score_valid(sample_df: DataFrame) -> None:
-    df = filter_by_score(sample_df, 0.5)
-    assert (df["score"] >= 0.5).all()
+# filter_by_confidence
+def test_filter_by_confidence_valid(sample_df: DataFrame) -> None:
+    df = filter_by_confidence(sample_df, 0.5)
+    assert (df["confidence"] >= 0.5).all()
 
 
-def test_filter_by_score_no_results(sample_df: DataFrame) -> None:
-    with pytest.raises(ValueError, match="No detection found with score above 1.0"):
-        filter_by_score(sample_df, 1.0)
+def test_filter_by_confidence_no_results(sample_df: DataFrame) -> None:
+    df = filter_by_confidence(sample_df, 1)
+    assert df.empty
 
 
-def test_filter_by_score_missing_column(sample_df: DataFrame) -> None:
-    df = sample_df.drop(columns=["score"])
-    with pytest.raises(ValueError, match="'score' column not present"):
-        filter_by_score(df, 0.5)
+def test_filter_by_confidence_missing_column(sample_df: DataFrame) -> None:
+    df = sample_df.drop(columns=["confidence"])
+    with pytest.raises(ValueError, match="'confidence' column not present"):
+        filter_by_confidence(df, 0.5)
 
 
 # filter_weak_strong_detection
@@ -282,7 +284,7 @@ def test_get_labels(sample_df: DataFrame) -> None:
 
 
 def test_get_max_freq(sample_df: DataFrame) -> None:
-    assert get_max_freq(sample_df) == sample_df["end_frequency"].max()
+    assert get_max_freq(sample_df) == sample_df["max_frequency"].max()
 
 
 def test_get_max_time(sample_df: DataFrame) -> None:
@@ -327,14 +329,14 @@ def test_get_timezone_several(sample_df: DataFrame) -> None:
         "filename": "2025_01_26_06_20_00",
         "start_time": 0,
         "end_time": 2,
-        "start_frequency": 100,
-        "end_frequency": 200,
+        "min_frequency": 100,
+        "max_frequency": 200,
         "annotation": "annotation",
         "annotator": "annotator",
         "start_datetime": Timestamp("2025-01-27 06:00:00.000000+07:00"),
         "end_datetime": Timestamp("2025-01-27 06:00:00.000000+07:00"),
-        "is_box": 1,
-        "score": None,
+        "type": "WEAK",
+        "confidence": None,
     }
     sample_df = concat(
         [sample_df, DataFrame([new_row])],
@@ -416,14 +418,14 @@ def test_no_timebin_several_tz(sample_df: DataFrame) -> None:
         "filename": "2025_01_26_06_20_00",
         "start_time": 0,
         "end_time": 2,
-        "start_frequency": 100,
-        "end_frequency": 200,
+        "min_frequency": 100,
+        "max_frequency": 200,
         "annotation": "annotation",
         "annotator": "annotator",
         "start_datetime": Timestamp("2025-01-27 06:00:00.000000+07:00"),
         "end_datetime": Timestamp("2025-01-27 06:00:00.000000+07:00"),
-        "is_box": 1,
-        "score": None,
+        "type": "WEAK",
+        "confidence": None,
     }
     sample_df = concat(
         [sample_df, DataFrame([new_row])],
@@ -472,8 +474,8 @@ def test_no_timebin_original_timebin(sample_df: DataFrame) -> None:
             ],
             "start_time": [0] * 18,
             "end_time": [60.0] * 18,
-            "start_frequency": [0] * 18,
-            "end_frequency": [72_000.0] * 18,
+            "min_frequency": [0] * 18,
+            "max_frequency": [72_000.0] * 18,
             "annotation": [
                 "lbl1",
                 "lbl2",
@@ -538,7 +540,7 @@ def test_simple_reshape_hourly(sample_df: DataFrame) -> None:
     )
     assert not df_out.empty
     assert all(df_out["end_time"] == 3600.0)
-    assert df_out["end_frequency"].max() == sample_df["end_frequency"].max()
+    assert df_out["max_frequency"].max() == sample_df["max_frequency"].max()
     assert set(df_out["annotation"]) <= set(sample_df["annotation"])
     assert set(df_out["annotator"]) <= set(sample_df["annotator"])
 
@@ -581,10 +583,12 @@ def test_empty_result_when_no_matching(sample_df: DataFrame) -> None:
     timestamp_wav = to_datetime(
         sample_df["filename"], format="%Y_%m_%d_%H_%M_%S"
     ).dt.tz_localize(tz)
-    with pytest.raises(ValueError, match="DataFrame is empty"):
-        reshape_timebin(
-            DataFrame(), timestamp_audio=timestamp_wav, timebin_new=Timedelta(hours=1)
-        )
+    df = reshape_timebin(
+        DataFrame(),
+        timestamp_audio=timestamp_wav,
+        timebin_new=Timedelta(hours=1),
+    )
+    assert df.empty
 
 
 # %% ensure_no_invalid
