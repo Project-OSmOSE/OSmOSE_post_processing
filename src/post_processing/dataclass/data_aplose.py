@@ -244,6 +244,21 @@ class DataAplose:
         ----------
         config: dict | list[dict]
             The dictionnary corresponding to the configuration.
+            A dict must contains the following arguments:
+                detection_file: Path
+                filename_format: str
+            Others non-mandatory arguments can be given:
+                timebin_new: Timedelta | None = None
+                start_datetime: Timestamp | None = None
+                end_datetime: Timestamp | None = None
+                annotator: str | list[str] | None = None
+                annotation: str | list[str] | None = None
+                type: str | None = None
+                timestamp_file: Path | None = None
+                user_selection: str = "all"
+                min_frequency: float | None = None
+                max_frequency: float | None = None
+                confidence: float | None = None
         concat: bool
             If set to True, the DataAplose objects will be concatenated.
             If set to False, the DataAplose objects will be returned as a list.
