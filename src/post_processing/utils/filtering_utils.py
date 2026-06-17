@@ -26,7 +26,7 @@ from post_processing.utils.core_utils import get_count
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from post_processing.dataclass.detection_filter import DetectionFilter
+    from post_processing.dataclass.data_aplose import DataAploseConfig
 
 
 def find_delimiter(file: Path) -> str:
@@ -223,7 +223,7 @@ def filter_by_freq(
     return df
 
 
-def filter_by_confidence(df: DataFrame, confidence: float) -> DataFrame:
+def filter_by_confidence(df: DataFrame, confidence: float | None) -> DataFrame:
     """Filter detections by confidence.
 
     Parameters
@@ -242,6 +242,10 @@ def filter_by_confidence(df: DataFrame, confidence: float) -> DataFrame:
     if not confidence:
         return df
 
+    if not 0 <= confidence <= 1:
+        msg = f"confidence must be between 0 and 1, got {confidence}."
+        raise ValueError(msg)
+
     if "confidence" not in df.columns:
         msg = "'confidence' column not present if DataFrame."
         raise ValueError(msg)
@@ -252,14 +256,26 @@ def filter_by_confidence(df: DataFrame, confidence: float) -> DataFrame:
 def read_dataframe(file: Path, rows: int | None = None) -> DataFrame:
     """Read an APLOSE-formatted CSV file into a DataFrame."""
     delimiter = find_delimiter(file)
+
+    df = read_csv(
+        file,
+        sep=delimiter,
+        parse_dates=["start_datetime", "end_datetime"],
+        nrows=rows,
+    )
+
+    # legacy update
+    df = df.rename(
+        columns={
+            "start_frequency": "max_frequency",
+            "end_frequency": "min_frequency",
+            "is_box": "type",
+            "score": "confidence",
+        }
+    )
+
     return (
-        read_csv(
-            file,
-            sep=delimiter,
-            parse_dates=["start_datetime", "end_datetime"],
-            nrows=rows,
-        )
-        .drop_duplicates()
+        df.drop_duplicates()
         .dropna(subset=["annotation"])
         .sort_values(by=["start_datetime", "end_datetime"])
         .reset_index(drop=True)
@@ -269,7 +285,7 @@ def read_dataframe(file: Path, rows: int | None = None) -> DataFrame:
 def get_annotators(df: DataFrame) -> str | list[str]:
     """Return the annotator list of APLOSE DataFrame."""
     if df.empty:
-        return []
+        return None
     annotators = sorted(set(df["annotator"]))
     return annotators if len(annotators) > 1 else annotators[0]
 
@@ -277,7 +293,7 @@ def get_annotators(df: DataFrame) -> str | list[str]:
 def get_labels(df: DataFrame) -> str | list[str]:
     """Return the label list of APLOSE DataFrame."""
     if df.empty:
-        return []
+        return None
     labels = sorted(set(df["annotation"]))
     return labels if len(labels) > 1 else labels[0]
 
@@ -285,21 +301,21 @@ def get_labels(df: DataFrame) -> str | list[str]:
 def get_max_freq(df: DataFrame) -> float:
     """Return the maximum frequency of APLOSE DataFrame."""
     if df.empty:
-        return []
+        return None
     return df["max_frequency"].max()
 
 
 def get_max_time(df: DataFrame) -> float:
     """Return the maximum time of APLOSE DataFrame."""
     if df.empty:
-        return []
-    return df["end_time"].max()
+        return None
+    return Timedelta(df["end_time"].max(), "s")
 
 
 def get_dataset(df: DataFrame) -> str | list[str]:
     """Return dataset list  of APLOSE DataFrame."""
     if df.empty:
-        return []
+        return None
     datasets = sorted(set(df["dataset"]))
     return datasets if len(datasets) > 1 else datasets[0]
 
@@ -624,13 +640,13 @@ def ensure_no_invalid(invalid: list[str], label: str) -> None:
         raise ValueError(msg)
 
 
-def load_detections(filters: DetectionFilter) -> DataFrame:
+def load_detections(config: DataAploseConfig) -> DataFrame:
     """Load and filter an APLOSE-formatted detection file.
 
     Parameters
     ----------
-    filters : DetectionFilter
-        All selection / filtering options.
+    config : DataAploseConfig
+        Data configuration for loading and filtering detections.
 
     Returns
     -------
@@ -638,28 +654,28 @@ def load_detections(filters: DetectionFilter) -> DataFrame:
         Detections that match the selected filters.
 
     """
-    df = read_dataframe(filters.detection_file)
+    df = read_dataframe(config.detection_file)
 
     if df.empty:
         return df
 
-    if filters.box:
+    if config.type == "WEAK":
         df = filter_strong_detection(df)
-    df = filter_by_time(df, filters.begin, filters.end)
-    df = filter_by_annotator(df, annotator=filters.annotator)
-    df = filter_by_label(df, label=filters.annotation)
-    df = filter_by_freq(df, filters.f_min, filters.f_max)
-    df = filter_by_confidence(df, filters.confidence)
-    filename_ts = get_filename_timestamps(df, filters.filename_format)
+    df = filter_by_time(df, config.start_datetime, config.end_datetime)
+    df = filter_by_annotator(df, annotator=config.annotator)
+    df = filter_by_label(df, label=config.annotation)
+    df = filter_by_freq(df, config.min_frequency, config.max_frequency)
+    df = filter_by_confidence(df, config.confidence)
+    filename_ts = get_filename_timestamps(df, config.filename_format)
     df = reshape_timebin(
         df,
-        timebin_new=filters.timebin_new,
+        timebin_new=config.timebin_new,
         timestamp_audio=filename_ts,
     )
 
     annotators = get_annotators(df)
-    if len(annotators) > 1 and filters.user_sel in {"union", "intersection"}:
-        df = intersection_or_union(df, user_sel=filters.user_sel)
+    if len(annotators) > 1 and config.user_selection in {"union", "intersection"}:
+        df = intersection_or_union(df, user_sel=config.user_selection)
 
     return df.sort_values(by=["start_datetime", "end_datetime"]).reset_index(drop=True)
 
@@ -695,7 +711,7 @@ def add_weak_detection(
     if not max_freq:
         max_freq = get_max_freq(df)
     if not max_time:
-        max_time = Timedelta(get_max_time(df), "s")
+        max_time = get_max_time(df)
 
     df["start_datetime"] = [
         strftime_osmose_format(start) for start in df["start_datetime"]

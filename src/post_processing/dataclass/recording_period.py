@@ -25,7 +25,7 @@ from post_processing.utils.filtering_utils import (
 if TYPE_CHECKING:
     from pandas.tseries.offsets import BaseOffset
 
-    from post_processing.dataclass.detection_filter import DetectionFilter
+    from post_processing.dataclass.data_aplose import DataAploseConfig
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class RecordingPeriod:
     @classmethod
     def from_path(
         cls,
-        config: DetectionFilter,
+        config: DataAploseConfig,
         *,
         bin_size: Timedelta | BaseOffset,
     ) -> RecordingPeriod:
@@ -116,9 +116,9 @@ class RecordingPeriod:
             ["start_recording", "start_deployment"]
         ].max(axis=1)
 
-        df["effective_end_recording"] = df[
-            ["end_recording", "end_deployment"]
-        ].min(axis=1)
+        df["effective_end_recording"] = df[["end_recording", "end_deployment"]].min(
+            axis=1
+        )
 
         # Remove rows with no actual recording interval
         df = df.loc[
@@ -155,8 +155,7 @@ class RecordingPeriod:
 
         counts.index = IntervalIndex.from_arrays(
             counts.index,
-            counts.index +
-            round_begin_end_timestamps(list(counts.index), bin_size)[-1],
+            counts.index + round_begin_end_timestamps(list(counts.index), bin_size)[-1],
             closed="left",
         )
 

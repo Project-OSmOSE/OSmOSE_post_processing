@@ -1,3 +1,5 @@
+import logging
+import re
 from contextlib import nullcontext
 from copy import copy
 from pathlib import Path
@@ -6,11 +8,26 @@ from typing import ContextManager
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pytest
+import pytz
 from pandas import DataFrame, Timedelta, Timestamp
 from pandas.tseries import frequencies
 
-from post_processing.dataclass.data_aplose import DataAplose
+from post_processing.dataclass.data_aplose import DataAplose, _get_locator_from_offset
 from post_processing.utils.filtering_utils import get_timezone
+
+
+def test_data_aplose_str(sample_df: DataFrame) -> None:
+    obj = DataAplose(sample_df)
+
+    expected = (
+        f"start_datetime: {obj.start_datetime}\n"
+        f"end_datetime: {obj.end_datetime}\n"
+        f"annotators: {obj.annotators}\n"
+        f"labels: {obj.labels}\n"
+        f"dataset: {obj.dataset}"
+    )
+    assert str(obj) == expected
+    assert repr(obj) == str(obj)
 
 
 def test_data_aplose_init(sample_df: DataFrame) -> None:
@@ -20,8 +37,41 @@ def test_data_aplose_init(sample_df: DataFrame) -> None:
     assert sorted(data.labels) == ["lbl1", "lbl2", "lbl3"]
     assert data.dataset == ["sample_dataset"]
     assert data.shape == sample_df.shape
-    assert data.begin == sample_df["start_datetime"].min()
-    assert data.end == sample_df["end_datetime"].max()
+    assert data.start_datetime == sample_df["start_datetime"].min()
+    assert data.end_datetime == sample_df["end_datetime"].max()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_msg"),
+    [
+        pytest.param((48.39, -4.49), None, id="valid"),
+        pytest.param((0.0, 0.0), None, id="valid_zero"),
+        pytest.param(
+            [48.39, -4.49],
+            re.escape("Coordinates must be a tuple of two floats: (lat, lon)."),
+            id="invalid_list",
+        ),
+        pytest.param(
+            (48.39,),
+            re.escape("Coordinates must be a tuple of two floats: (lat, lon)."),
+            id="invalid_missing_lon",
+        ),
+        pytest.param(
+            (48, 5, 6),
+            re.escape("Coordinates must be a tuple of two floats: (lat, lon)."),
+            id="invalid_long_tuple",
+        ),
+    ],
+)
+def test_coordinates_setter(value: tuple, expected_msg: str | None) -> None:
+    obj = DataAplose.__new__(DataAplose)
+
+    if expected_msg is None:
+        obj.coordinates = value
+        assert (obj.lat, obj.lon) == value
+    else:
+        with pytest.raises(ValueError, match=expected_msg):
+            obj.coordinates = value
 
 
 def test_filter_df_single_pair(sample_df: DataFrame) -> None:
@@ -47,10 +97,10 @@ def test_change_tz(sample_df: DataFrame) -> None:
     assert all(ts.tz.zone == new_tz for ts in end_dt), (
         f"The detection end timestamps have to be in {new_tz} timezone"
     )
-    assert data.begin.tz.zone == new_tz, (
+    assert data.start_datetime.tz.zone == new_tz, (
         f"The begin value of the DataAplose has to be in {new_tz} timezone"
     )
-    assert data.end.tz.zone == new_tz, (
+    assert data.end_datetime.tz.zone == new_tz, (
         f"The end value of the DataAplose has to be in {new_tz} timezone"
     )
 
@@ -131,7 +181,7 @@ def test_set_ax_uses_2hour_locator(sample_df: DataFrame) -> None:
 
 def test_histo(sample_df: DataFrame) -> None:
     data = DataAplose(sample_df)
-    fig, ax = plt.subplots()
+    _, ax = plt.subplots()
     bin_size = Timedelta("1h")
     tick_freq = frequencies.to_offset("2h")
     ax = data.set_ax(
@@ -165,8 +215,10 @@ def test_heatmap_wrong_bin(sample_df: DataFrame) -> None:
     data.lon = 0
     data.lat = 0
     bins = frequencies.to_offset("10s")
-    fig, ax = plt.subplots()
-    with pytest.raises(ValueError, match="`bin_size` must be >= 24h for heatmap mode."):
+    _, ax = plt.subplots()
+    with pytest.raises(
+        ValueError, match=r"`bin_size` must be >= 24h for heatmap mode."
+    ):
         data.plot(
             mode="heatmap",
             ax=ax,
@@ -182,6 +234,45 @@ def test_plot_invalid_mode(sample_df: DataFrame) -> None:
     fig, ax = plt.subplots()
     with pytest.raises(ValueError, match="Unsupported plot mode"):
         data.plot("wrong_mode", ax, annotator="ann1", label="lbl1")
+
+
+def test_plot_histogram_missing_bin_size(monkeypatch, sample_df: DataFrame) -> None:
+    obj = DataAplose(sample_df)
+
+    monkeypatch.setattr(obj, "filter_df", lambda annotator, label: sample_df)
+    monkeypatch.setattr(
+        "post_processing.dataclass.data_aplose.histo", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        "post_processing.dataclass.data_aplose.get_count", lambda *args, **kwargs: None
+    )
+
+    _, ax = plt.subplots()
+
+    with pytest.raises(ValueError, match=r"'bin_size' missing for histogram plot."):
+        obj.plot(
+            mode="histogram",
+            ax=ax,
+            annotator="ann1",
+            label="lbl1",
+        )
+
+
+def test_plot_agreement_missing_bin_size(monkeypatch, sample_df: DataFrame) -> None:
+    obj = DataAplose(sample_df)
+
+    monkeypatch.setattr(obj, "filter_df", lambda annotator, label: sample_df)
+
+    _, ax = plt.subplots()
+
+    with pytest.raises(ValueError, match=r"'bin_size' missing for agreement plot."):
+        obj.plot(
+            mode="agreement",
+            ax=ax,
+            annotator="ann1",
+            label="lbl1",
+            bin_size=None,
+        )
 
 
 def test_plot_agreement(sample_df: DataFrame) -> None:
@@ -204,11 +295,11 @@ def test_set_ax(sample_df: DataFrame) -> None:
     assert isinstance(locator, mdates.HourLocator)
 
 
-def test_from_yaml(
-    sample_yaml: Path,
+def test_from_dict(
+    sample_dict: dict,
     sample_df: DataFrame,
 ) -> None:
-    df_from_yaml = DataAplose.from_yaml(file=sample_yaml).df
+    df_from_yaml = DataAplose.from_dict(sample_dict).df
     df_expected = (
         DataAplose(sample_df)
         .filter_df(annotator="ann1", label="lbl1")
@@ -217,7 +308,68 @@ def test_from_yaml(
     assert df_from_yaml.equals(df_expected)
 
 
-def test_concat(sample_yaml: Path, sample_df: DataFrame) -> None:
+def test_from_dict_concat(
+    sample_dict: dict,
+    sample_df: DataFrame,
+) -> None:
+    data_expected = DataAplose.from_dict(sample_dict)
+    start = data_expected.start_datetime
+    end = data_expected.end_datetime
+    median_time = start + (end - start) / 2
+    config = [
+        {
+            "detection_file": sample_dict["detection_file"],
+            "end_datetime": median_time,
+            "filename_format": sample_dict["filename_format"],
+            "annotator": sample_dict["annotator"],
+            "annotation": sample_dict["annotation"],
+        },
+        {
+            "detection_file": sample_dict["detection_file"],
+            "start_datetime": median_time,
+            "filename_format": sample_dict["filename_format"],
+            "annotator": sample_dict["annotator"],
+            "annotation": sample_dict["annotation"],
+        },
+    ]
+    data_concat = DataAplose.from_dict(config, concat=True)
+
+    assert all(data_expected.df == data_concat.df)
+    assert repr(data_expected) == repr(data_concat)
+
+
+def test_from_dict_no_concat(
+    sample_dict: dict,
+    sample_df: DataFrame,
+) -> None:
+    data_expected = DataAplose.from_dict(sample_dict)
+    start = data_expected.start_datetime
+    end = data_expected.end_datetime
+    median_time = start + (end - start) / 2
+    config = [
+        {
+            "detection_file": sample_dict["detection_file"],
+            "end_datetime": median_time,
+            "filename_format": sample_dict["filename_format"],
+            "annotator": sample_dict["annotator"],
+            "annotation": sample_dict["annotation"],
+        },
+        {
+            "detection_file": sample_dict["detection_file"],
+            "start_datetime": median_time,
+            "filename_format": sample_dict["filename_format"],
+            "annotator": sample_dict["annotator"],
+            "annotation": sample_dict["annotation"],
+        },
+    ]
+    data_concat = DataAplose.from_dict(config, concat=False)
+
+    assert isinstance(data_concat, list)
+    assert len(data_concat) == len(config)
+    assert [isinstance(data, DataAplose) for data in data_concat]
+
+
+def test_concatenate(sample_dict: Path, sample_df: DataFrame) -> None:
     data1 = DataAplose(sample_df.loc[: len(sample_df) / 2])
     data2 = DataAplose(sample_df.loc[len(sample_df) / 2 :])
 
@@ -238,6 +390,105 @@ def test_concat(sample_yaml: Path, sample_df: DataFrame) -> None:
             assert got.equals(exp), f"Mismatch in {attr}"
         else:
             assert got == exp, f"Mismatch in {attr}"
+
+
+def test_concatenate_change_tz(sample_df: DataFrame, caplog) -> None:
+    data1 = DataAplose(sample_df.loc[: len(sample_df) / 2])
+    data1.change_tz(pytz.timezone("Etc/GMT-7"))
+    data2 = DataAplose(sample_df.loc[len(sample_df) / 2 :])
+
+    with caplog.at_level(logging.INFO):
+        data_concat = DataAplose.concatenate([data1, data2])
+
+    assert get_timezone(data_concat.df) == pytz.utc
+    assert (
+        "Several timezones found in DataFrame, all timestamps are converted to UTC."
+        in caplog.text
+    )
+
+
+# %% Overview
+
+
+def test_data_aplose_overview(monkeypatch, sample_df: DataFrame) -> None:
+    obj = DataAplose(sample_df)
+
+    called = {}
+
+    def fake_overview(df: DataFrame, annotator: str) -> None:
+        called["df"] = df
+        called["annotator"] = annotator
+
+    monkeypatch.setattr(
+        "post_processing.dataclass.data_aplose.overview",
+        fake_overview,
+    )
+
+    annotator = ["ann1"]
+    obj.overview(annotator)
+
+    assert called["df"] is obj.df
+    assert called["annotator"] == annotator
+
+
+@pytest.mark.parametrize(
+    ("annotators", "labels", "expected_ref"),
+    [
+        pytest.param(
+            ("ann1", "ann2"),
+            "lbl1",
+            ("ann1", "lbl1"),
+            id="annotators_tuple_labels_str",
+        ),
+        pytest.param(
+            "ann1",
+            ("lbl1", "lbl2"),
+            ("ann1", "lbl1"),
+            id="annotators_str_labels_tuple",
+        ),
+    ],
+)
+def test_data_aplose_detection_perf_wrapper_parametrized(
+    monkeypatch,
+    sample_df: DataFrame,
+    annotators: tuple[str, str] | str,
+    labels: tuple[str, str] | str,
+    expected_ref: tuple[str, str],
+) -> None:
+    obj = DataAplose(sample_df[sample_df["type"] == "WEAK"])
+
+    called = {}
+
+    def fake_detection_perf(
+        df: DataFrame, ref: tuple[str, str], time
+    ) -> tuple[float, float, float]:
+        called["df"] = df
+        called["ref"] = ref
+        called["time"] = time
+        return (0.1, 0.2, 0.3)
+
+    monkeypatch.setattr(
+        "post_processing.dataclass.data_aplose.detection_perf",
+        fake_detection_perf,
+    )
+
+    result = obj.detection_perf(
+        annotators=annotators,
+        labels=labels,
+    )
+
+    assert result == (0.1, 0.2, 0.3)
+    assert called["ref"] == expected_ref
+
+
+def test_detection_perf_multiple_timebins(sample_df: DataFrame) -> None:
+    obj = DataAplose(sample_df)
+
+    with pytest.raises(ValueError, match="Multiple time bins detected"):
+        obj.detection_perf(
+            annotators=("ann1", "ann2"),
+            labels=("lbl1", "lbl2"),
+        )
 
 
 # %% Reshape
@@ -358,7 +609,7 @@ def test_reshape_valid_cases(
 ) -> None:
     """Test that reshape handles valid timestamp cases appropriately."""
     reshaped = copy(sample_data_aplose)
-    reshaped.reshape(begin=begin, end=end)
+    reshaped.reshape(start_datetime=begin, end_datetime=end)
 
     original_tz = get_timezone(sample_data_aplose.df)
 
@@ -366,21 +617,64 @@ def test_reshape_valid_cases(
     if begin is not None:
         if begin.tz is None:
             begin = begin.tz_localize(original_tz)
-        assert reshaped.begin != sample_data_aplose.begin
-        assert reshaped.begin == begin
+        assert reshaped.start_datetime != sample_data_aplose.start_datetime
+        assert reshaped.start_datetime == begin
 
     if end is not None:
         if end.tz is None:
             end = end.tz_localize(original_tz)
-        assert reshaped.end != sample_data_aplose.end
-        assert reshaped.end == end
+        assert reshaped.end_datetime != sample_data_aplose.end_datetime
+        assert reshaped.end_datetime == end
 
     # Check timezone was applied for tz-naive timestamps
-    assert reshaped.begin.tz is not None
-    assert reshaped.end.tz is not None
+    assert reshaped.start_datetime.tz is not None
+    assert reshaped.end_datetime.tz is not None
 
     # Check filtering behavior
     if should_filter:
         assert reshaped.shape <= sample_data_aplose.shape
-        assert all(reshaped.df["start_datetime"] >= reshaped.begin)
-        assert all(reshaped.df["end_datetime"] <= reshaped.end)
+        assert all(reshaped.df["start_datetime"] >= reshaped.start_datetime)
+        assert all(reshaped.df["end_datetime"] <= reshaped.end_datetime)
+
+
+# %%
+
+
+def test_get_locator_from_offset(monkeypatch) -> None:
+    class FakeSecond:
+        def __init__(self, interval) -> None:
+            self.interval = interval
+
+    class FakeMinute:
+        def __init__(self, interval) -> None:
+            self.interval = interval
+
+    monkeypatch.setattr(mdates, "SecondLocator", FakeSecond)
+    monkeypatch.setattr(mdates, "MinuteLocator", FakeMinute)
+
+    @pytest.mark.parametrize(
+        "offset, expected, interval",
+        [
+            (5, FakeSecond, 5),
+            (Timedelta("45s"), FakeSecond, 45),
+            (Timedelta("120s"), FakeMinute, 2),
+        ],
+    )
+    def check_valid(offset, expected, interval):
+        loc = _get_locator_from_offset(offset)
+        assert isinstance(loc, expected)
+        assert loc.interval == interval
+
+    for offset, expected, interval in [
+        (5, FakeSecond, 5),
+        (Timedelta("45s"), FakeSecond, 45),
+        (Timedelta("120s"), FakeMinute, 2),
+    ]:
+        loc = _get_locator_from_offset(offset)
+        assert isinstance(loc, expected)
+        assert loc.interval == interval
+
+
+def test_get_locator_from_offset_unsupported() -> None:
+    with pytest.raises(ValueError, match="Unsupported offset type"):
+        _get_locator_from_offset(3.14)

@@ -288,7 +288,7 @@ def test_get_max_freq(sample_df: DataFrame) -> None:
 
 
 def test_get_max_time(sample_df: DataFrame) -> None:
-    assert get_max_time(sample_df) == sample_df["end_time"].max()
+    assert get_max_time(sample_df) == Timedelta(sample_df["end_time"].max(), "s")
 
 
 def test_get_dataset(sample_df: DataFrame) -> None:

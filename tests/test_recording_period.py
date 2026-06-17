@@ -1,10 +1,12 @@
 from pandas import Timedelta, read_csv, to_datetime
 
-from post_processing.dataclass.detection_filter import DetectionFilter
+from post_processing.dataclass.data_aplose import DataAploseConfig
 from post_processing.dataclass.recording_period import RecordingPeriod
 
 
-def test_recording_period_with_gaps(recording_planning_config: DetectionFilter) -> None:
+def test_recording_period_with_gaps(
+    recording_planning_config: DataAploseConfig,
+) -> None:
     """RecordingPeriod correctly represents long gaps with no recording effort.
 
     The planning contains two recording blocks separated by ~3 weeks with no
@@ -39,17 +41,12 @@ def test_recording_period_with_gaps(recording_planning_config: DetectionFilter) 
         "start_deployment",
         "end_deployment",
     ]:
-        df_planning[col] = (
-            to_datetime(df_planning[col], utc=True)
-            .dt.tz_convert(None)
-        )
+        df_planning[col] = to_datetime(df_planning[col], utc=True).dt.tz_convert(None)
 
-    df_planning["start"] = df_planning[
-        ["start_recording", "start_deployment"]
-    ].max(axis=1)
-    df_planning["end"] = df_planning[
-        ["end_recording", "end_deployment"]
-    ].min(axis=1)
+    df_planning["start"] = df_planning[["start_recording", "start_deployment"]].max(
+        axis=1
+    )
+    df_planning["end"] = df_planning[["end_recording", "end_deployment"]].min(axis=1)
 
     planning = df_planning.loc[df_planning["start"] < df_planning["end"]]
     # ------------------------------------------------------------------

@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
-import yaml
 from osekit.utils.timestamp import strftime_osmose_format
 from pandas import DataFrame, read_csv
 from pandas.tseries import frequencies
@@ -183,33 +182,26 @@ def sample_csv_timestamp(tmp_path: Path, sample_status: DataFrame) -> Path:
 
 
 @pytest.fixture
-def sample_yaml(
+def sample_dict(
     tmp_path: Path,
     sample_csv_result: Path,
     sample_csv_timestamp: Path,
-) -> Path:
-    yaml_content = {
-        f"{sample_csv_result}": {
-            "timebin_new": None,
-            "begin": None,
-            "end": None,
-            "annotator": "ann1",
-            "annotation": "lbl1",
-            "box": True,
-            "timestamp_file": f"{sample_csv_timestamp}",
-            "filename_format": "%Y_%m_%d_%H_%M_%S",
-            "user_sel": "all",
-            "f_min": None,
-            "f_max": None,
-            "confidence": None,
-        },
+) -> dict:
+    return {
+        "detection_file": sample_csv_result,
+        "timebin_new": None,
+        "start_datetime": None,
+        "end_datetime": None,
+        "min_frequency": None,
+        "max_frequency": None,
+        "annotator": "ann1",
+        "annotation": "lbl1",
+        "type": "BOX",
+        "timestamp_file": sample_csv_timestamp,
+        "filename_format": "%Y_%m_%d_%H_%M_%S",
+        "user_selection": "all",
+        "confidence": None,
     }
-
-    yaml_file = tmp_path / "filters.yaml"
-    with yaml_file.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(yaml_content, f)
-
-    return yaml_file
 
 
 @pytest.fixture

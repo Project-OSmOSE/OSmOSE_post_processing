@@ -8,6 +8,7 @@ plot time-based distributions, and manage metadata such as annotators and labels
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import matplotlib.dates as mdates
@@ -22,14 +23,15 @@ from pandas import (
 )
 from pandas.tseries import offsets
 
-from post_processing.dataclass.detection_filter import DetectionFilter
 from post_processing.utils.core_utils import get_count
 from post_processing.utils.filtering_utils import (
     get_annotators,
     get_dataset,
     get_labels,
+    get_max_time,
     get_timezone,
     load_detections,
+    read_dataframe,
 )
 from post_processing.utils.metrics_utils import detection_perf
 from post_processing.utils.plot_utils import (
@@ -91,26 +93,78 @@ def _get_locator_from_offset(
     raise ValueError(msg)
 
 
+@dataclass(frozen=True)
+class DataAploseConfig:
+    """Configuration object for loading and filtering APLOSE-formatted detection data.
+
+    Parameters
+    ----------
+    detection_file : Path
+        Path to the detection file to be loaded.
+    timebin_new : Timedelta | None
+        Optional resampling or re-binning time resolution.
+    start_datetime : Timestamp | None
+        Start datetime used to filter detections.
+    end_datetime : Timestamp | None
+        End datetime used to filter detections.
+    annotator : str | list[str] | None
+        Filter for one or multiple annotators.
+    annotation : str | list[str] | None
+        Filter for one or multiple annotation labels.
+    type : str | None
+        Optional detection type filter.
+    timestamp_file : Path | None
+        Optional external timestamp reference file.
+    user_selection : str
+        Strategy for combining multiple filters. Default is "all".
+    min_frequency : float | None
+        Minimum frequency threshold for filtering detections.
+    max_frequency : float | None
+        Maximum frequency threshold for filtering detections.
+    confidence : float | None
+        Minimum confidence threshold for detections.
+    filename_format : str | None
+        Optional filename formatting rule.
+    timebin_origin : Timedelta | None
+        Automatically computed base time bin derived from the detection file.
+        This field is set internally and should not be provided manually.
+
+    """
+
+    detection_file: Path
+    timebin_new: Timedelta | None = None
+    start_datetime: Timestamp | None = None
+    end_datetime: Timestamp | None = None
+    annotator: str | list[str] | None = None
+    annotation: str | list[str] | None = None
+    type: str | None = None
+    timestamp_file: Path | None = None
+    user_selection: str = "all"
+    min_frequency: float | None = None
+    max_frequency: float | None = None
+    confidence: float | None = None
+    filename_format: str | None = None
+    timebin_origin: Timedelta | None = None
+
+    def __post_init__(self) -> None:
+        """Compute derived configuration fields after initialization."""
+        df = read_dataframe(self.detection_file)
+        object.__setattr__(self, "timebin_origin", get_max_time(df))
+
+
 class DataAplose:
     """A class to handle APLOSE formatted data."""
 
     def __init__(
         self,
         df: DataFrame = None,
-        *,
-        begin: Timestamp = None,
-        end: Timestamp = None,
     ) -> None:
         """Initialize a DataAplose object from a DataFrame.
 
         Parameters
         ----------
         df: DataFrame
-            APLOSE formatted DataFrame
-        begin: Timestamp
-            The start datetime of the data.
-        end: Timestamp
-            The end datetime of the data.
+            APLOSE-formatted DataFrame
 
         """
         self.df = df.sort_values(
@@ -123,10 +177,8 @@ class DataAplose:
         ).reset_index(drop=True)
         self.annotators = sorted(set(self.df["annotator"])) if df is not None else None
         self.labels = sorted(set(self.df["annotation"])) if df is not None else None
-        self.begin = (
-            min(self.df["start_datetime"], default=None) if begin is None else begin
-        )
-        self.end = max(self.df["end_datetime"], default=None) if end is None else end
+        self.start_datetime = min(self.df["start_datetime"], default=None)
+        self.end_datetime = max(self.df["end_datetime"], default=None)
         self.dataset = sorted(set(self.df["dataset"])) if df is not None else None
         self.lat = None
         self.lon = None
@@ -134,8 +186,8 @@ class DataAplose:
     def __str__(self) -> str:
         """Return string representation of DataAplose object."""
         return (
-            f"begin: {self.begin}\n"
-            f"end: {self.end}\n"
+            f"start_datetime: {self.start_datetime}\n"
+            f"end_datetime: {self.end_datetime}\n"
             f"annotators: {self.annotators}\n"
             f"labels: {self.labels}\n"
             f"dataset: {self.dataset}"
@@ -184,6 +236,111 @@ class DataAplose:
         """Return the row from the underlying DataFrame."""
         return self.df.iloc[item]
 
+    @classmethod
+    def from_dict(cls, config: dict | list[dict], *, concat: bool = True) -> DataAplose:
+        """Return a DataAplose object from a dictionary.
+
+        Parameters
+        ----------
+        config: dict | list[dict]
+            The dictionnary corresponding to the configuration.
+        concat: bool
+            If set to True, the DataAplose objects will be concatenated.
+            If set to False, the DataAplose objects will be returned as a list.
+
+        Returns
+        -------
+        DataAplose:
+        The DataAplose object.
+
+        """
+        if isinstance(config, dict):
+            config = [config]
+
+        conf_list = [DataAploseConfig(**c) for c in config]
+
+        cls_list = [cls(load_detections(conf)) for conf in conf_list]
+
+        for obj, conf in zip(cls_list, conf_list, strict=True):
+            cls.reshape(obj, conf.start_datetime, conf.end_datetime)
+
+        if len(cls_list) == 1:
+            return cls_list[0]
+
+        if concat:
+            return cls.concatenate(cls_list)
+        return cls_list
+
+    @classmethod
+    def concatenate(
+        cls,
+        data_list: list[DataAplose],
+    ) -> DataAplose:
+        """Concatenate a list of DataAplose objects into one."""
+        df_concat = (
+            concat(
+                [data.df for data in data_list],
+                ignore_index=True,
+            )
+            .sort_values(
+                by=[
+                    "start_datetime",
+                    "end_datetime",
+                    "annotator",
+                    "annotation",
+                ],
+            )
+            .reset_index(drop=True)
+        )
+
+        obj = cls(df=df_concat)
+
+        if isinstance(get_timezone(df_concat), list):
+            obj.change_tz("utc")
+            msg = (
+                "Several timezones found in DataFrame,"
+                " all timestamps are converted to UTC."
+            )
+            logging.info(msg)
+        return obj
+
+    def reshape(
+        self, start_datetime: Timestamp = None, end_datetime: Timestamp = None
+    ) -> DataAplose:
+        """Reshape the DataAplose with a new beginning and/or end."""
+        if not any([start_datetime, end_datetime]):
+            msg = "No begin/end timestamps provided for reshape of DataAplose instance."
+            logging.debug(msg)
+            return self
+
+        tz = get_timezone(self.df)
+        if start_datetime:
+            self.start_datetime = start_datetime
+            if not start_datetime.tz:
+                self.start_datetime = start_datetime.tz_localize(tz)
+        if end_datetime:
+            self.end_datetime = end_datetime
+            if not end_datetime.tz:
+                self.end_datetime = end_datetime.tz_localize(tz)
+
+        if self.start_datetime >= self.end_datetime:
+            msg = "Begin timestamp is not anterior than end timestamp."
+            raise ValueError(msg)
+
+        self.df = self.df[
+            (self.df["start_datetime"] >= self.start_datetime)
+            & (self.df["end_datetime"] <= self.end_datetime)
+        ]
+
+        if self.df.empty:
+            return self
+
+        self.dataset = get_dataset(self.df)
+        self.labels = get_labels(self.df)
+        self.annotators = get_annotators(self.df)
+
+        return self
+
     def change_tz(self, tz: str | tzinfo) -> None:
         """Change the timezone of a DataAplose instance.
 
@@ -206,8 +363,8 @@ class DataAplose:
         self.df["end_datetime"] = [
             elem.tz_convert(tz) for elem in self.df["end_datetime"]
         ]
-        self.begin = self.begin.tz_convert(tz)
-        self.end = self.end.tz_convert(tz)
+        self.start_datetime = self.start_datetime.tz_convert(tz)
+        self.end_datetime = self.end_datetime.tz_convert(tz)
 
     def filter_df(
         self,
@@ -295,7 +452,9 @@ class DataAplose:
         ax.xaxis.set_major_locator(
             _get_locator_from_offset(offset=x_ticks_res),
         )
-        date_formatter = mdates.DateFormatter(fmt=date_format, tz=self.begin.tz)
+        date_formatter = mdates.DateFormatter(
+            fmt=date_format, tz=self.start_datetime.tz
+        )
         ax.xaxis.set_major_formatter(date_formatter)
         ax.grid(linestyle="--", linewidth=0.2, axis="both", zorder=1)
 
@@ -348,7 +507,7 @@ class DataAplose:
         return detection_perf(
             df=df_filtered,
             ref=ref,
-            time=date_range(self.begin, self.end, freq=timebin),
+            time=date_range(self.start_datetime, self.end_datetime, freq=timebin),
         )
 
     def plot(
@@ -400,7 +559,7 @@ class DataAplose:
             label,
         )
 
-        time = date_range(self.begin, self.end)
+        time = date_range(self.start_datetime, self.end_datetime)
         bin_size = kwargs.get("bin_size")
         legend = kwargs.get("legend", True)
         color = kwargs.get("color")
@@ -469,138 +628,3 @@ class DataAplose:
 
         msg = f"Unsupported plot mode: {mode}"
         raise ValueError(msg)
-
-    @classmethod
-    def from_yaml(
-        cls,
-        file: Path,
-        *,
-        concat: bool = True,
-    ) -> DataAplose | list[DataAplose]:
-        """Return a DataAplose object from a YAML file.
-
-        Parameters
-        ----------
-        file: Path
-            The path to a YAML configuration file.
-        concat: bool
-            If set to True, the DataAplose objects will be concatenated.
-            If set to False, the DataAplose objects will be returned as a list.
-
-        Returns
-        -------
-        DataAplose:
-        The DataAplose object.
-
-        """
-        filters = DetectionFilter.from_yaml(file=file)
-        return cls.from_filters(filters, concat=concat)
-
-    @classmethod
-    def from_filters(
-        cls,
-        filters: DetectionFilter | list[DetectionFilter],
-        *,
-        concat: bool = False,
-    ) -> DataAplose | list[DataAplose]:
-        """Return a DataAplose object from a YAML file.
-
-        Parameters
-        ----------
-        filters: DetectionFilter | list[DetectionFilters]
-            Object containing the detection filters.
-        concat: bool
-            If set to True, the DataAplose objects will be concatenated.
-            If set to False, the DataAplose objects will be returned as a list.
-
-        Returns
-        -------
-        DataAplose:
-        The DataAplose object.
-
-        """
-        if isinstance(filters, DetectionFilter):
-            filters = [filters]
-        cls_list = [cls(load_detections(fil)) for fil in filters]
-
-        for cls_obj, fil in zip(cls_list, filters, strict=True):
-            cls.reshape(cls_obj, fil.begin, fil.end)
-
-        if len(cls_list) == 1:
-            return cls_list[0]
-
-        if concat:
-            return cls.concatenate(cls_list)
-        return cls_list
-
-    @classmethod
-    def concatenate(
-        cls,
-        data_list: list[DataAplose],
-    ) -> DataAplose:
-        """Concatenate a list of DataAplose objects into one."""
-        df_concat = (
-            concat(
-                [data.df for data in data_list],
-                ignore_index=True,
-            )
-            .sort_values(
-                by=[
-                    "start_datetime",
-                    "end_datetime",
-                    "annotator",
-                    "annotation",
-                ],
-            )
-            .reset_index(drop=True)
-        )
-
-        obj = cls(
-            df=df_concat,
-            begin=min(obj.begin for obj in data_list),
-            end=max(obj.end for obj in data_list),
-        )
-
-        if isinstance(get_timezone(df_concat), list):
-            obj.change_tz("utc")
-            msg = (
-                "Several timezones found in DataFrame,"
-                " all timestamps are converted to UTC."
-            )
-            logging.info(msg)
-        return obj
-
-    def reshape(self, begin: Timestamp = None, end: Timestamp = None) -> DataAplose:
-        """Reshape the DataAplose with a new beginning and/or end."""
-        if not any([begin, end]):
-            msg = "No begin/end timestamps provided for reshape of DataAplose instance."
-            logging.debug(msg)
-            return self
-
-        tz = get_timezone(self.df)
-        if begin:
-            self.begin = begin
-            if not begin.tz:
-                self.begin = begin.tz_localize(tz)
-        if end:
-            self.end = end
-            if not end.tz:
-                self.end = end.tz_localize(tz)
-
-        if self.begin >= self.end:
-            msg = "Begin timestamp is not anterior than end timestamp."
-            raise ValueError(msg)
-
-        self.df = self.df[
-            (self.df["start_datetime"] >= self.begin)
-            & (self.df["end_datetime"] <= self.end)
-        ]
-
-        if self.df.empty:
-            return self
-
-        self.dataset = get_dataset(self.df)
-        self.labels = get_labels(self.df)
-        self.annotators = get_annotators(self.df)
-
-        return self

@@ -31,7 +31,8 @@ from post_processing.utils.core_utils import (
     get_labels_and_annotators,
     get_sun_times,
     get_time_range_and_bin_size,
-    timedelta_to_str, round_begin_end_timestamps,
+    timedelta_to_str,
+    round_begin_end_timestamps,
 )
 from post_processing.utils.filtering_utils import (
     filter_by_annotator,
@@ -55,7 +56,12 @@ def histo(
     ax: plt.Axes,
     bin_size: Timedelta | BaseOffset,
     time_bin: Timedelta,
-    **kwargs: bool | str | list[str] | tuple[float, float] | list[Timestamp] | RecordingPeriod,  # noqa: E501
+    **kwargs: bool
+    | str
+    | list[str]
+    | tuple[float, float]
+    | list[Timestamp]
+    | RecordingPeriod,  # noqa: E501
 ) -> None:
     """Seasonality plot.
 
@@ -89,9 +95,11 @@ def histo(
     annotators = list(annotators)
 
     if len(df) <= 1:
-        msg = (f"DataFrame with annotators '{', '.join(annotators)}'"
-               f" / labels '{', '.join(labels)}'"
-               f" do not contains enough detections.")
+        msg = (
+            f"DataFrame with annotators '{', '.join(annotators)}'"
+            f" / labels '{', '.join(labels)}'"
+            f" do not contains enough detections."
+        )
         logging.warning(msg)
         return
 
@@ -283,12 +291,13 @@ def scatter(
         )
 
 
-def heatmap(df: DataFrame,
-            ax: Axes,
-            bin_size: Timedelta | BaseOffset,
-            time_range: DatetimeIndex,
-            **kwargs: bool | tuple[float, float],
-            ) -> None:
+def heatmap(
+    df: DataFrame,
+    ax: Axes,
+    bin_size: Timedelta | BaseOffset,
+    time_range: DatetimeIndex,
+    **kwargs: bool | tuple[float, float],
+) -> None:
     """Heatmap of detections for a given annotator and label.
 
     Parameters
@@ -336,7 +345,7 @@ def heatmap(df: DataFrame,
         coordinates=coordinates,
     )
 
-    freq = frequencies.to_offset(Timedelta(get_max_time(df), "s"))
+    freq = frequencies.to_offset(get_max_time(df))
 
     # Fine bins (for counting detection)
     fine_bins = date_range(begin, end, freq=freq)
@@ -567,9 +576,7 @@ def timeline(
 
     labels, _ = get_labels_and_annotators(df)
 
-    color = (
-        color or [c for _, c in zip(range(len(labels)), cycle(default_colors))]
-    )
+    color = color or [c for _, c in zip(range(len(labels)), cycle(default_colors))]
 
     for i, label in enumerate(labels):
         time_det = df[(df["annotation"] == label)]["start_datetime"].to_list()
@@ -619,11 +626,12 @@ def set_y_axis_to_percentage(ax: plt.Axes, max_val: float) -> None:
         ax.set_ylabel(f"{current_label} (%)")
 
 
-def set_dynamic_ylim(ax: plt.Axes,
-                     df: DataFrame,
-                     padding: float = 0.05,
-                     nticks: int = 4,
-                     ) -> None:
+def set_dynamic_ylim(
+    ax: plt.Axes,
+    df: DataFrame,
+    padding: float = 0.05,
+    nticks: int = 4,
+) -> None:
     """Set y-axis limits and ticks dynamically based on DataFrame values."""
     max_val = np.nanmax(df.to_numpy())
     upper_lim = int(ceil((1 + padding) * max_val))
@@ -635,10 +643,7 @@ def set_dynamic_ylim(ax: plt.Axes,
 
 def set_plot_title(ax: plt.Axes, annotators: list[str], labels: list[str]) -> None:
     """Set plot title."""
-    title = (
-        f"annotator: {', '.join(set(annotators))}\n"
-        f"label: {', '.join(set(labels))}"
-    )
+    title = f"annotator: {', '.join(set(annotators))}\nlabel: {', '.join(set(labels))}"
     ax.set_title(title)
 
 
@@ -723,13 +728,13 @@ def shade_no_effort(
 
 
 def _draw_effort_spans(
-        ax: plt.Axes,
-        effort_index: DatetimeIndex,
-        width_days: float,
-        *,
-        facecolor: str,
-        alpha: float,
-        label: str,
+    ax: plt.Axes,
+    effort_index: DatetimeIndex,
+    width_days: float,
+    *,
+    facecolor: str,
+    alpha: float,
+    label: str,
 ) -> None:
     """Draw vertical lines for effort plot."""
     for ts in effort_index:
