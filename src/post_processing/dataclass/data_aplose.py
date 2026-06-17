@@ -238,35 +238,38 @@ class DataAplose:
 
     @classmethod
     def from_dict(cls, config: dict | list[dict], *, concat: bool = True) -> DataAplose:
-        """Return a DataAplose object from a dictionary.
+        """Create a DataAplose object from a configuration dictionary.
 
         Parameters
         ----------
-        config: dict | list[dict]
-            The dictionnary corresponding to the configuration.
-            A dict must contains the following arguments:
-                detection_file: Path
-                filename_format: str
-            Others non-mandatory arguments can be given:
-                timebin_new: Timedelta | None = None
-                start_datetime: Timestamp | None = None
-                end_datetime: Timestamp | None = None
-                annotator: str | list[str] | None = None
-                annotation: str | list[str] | None = None
-                type: str | None = None
-                timestamp_file: Path | None = None
-                user_selection: str = "all"
-                min_frequency: float | None = None
-                max_frequency: float | None = None
-                confidence: float | None = None
-        concat: bool
-            If set to True, the DataAplose objects will be concatenated.
-            If set to False, the DataAplose objects will be returned as a list.
+        config : dict | list[dict]
+            Configuration dictionary or list of configuration dictionaries.
+
+            Required keys:
+                detection_file : Path
+                filename_format : str
+
+            Optional keys:
+                timebin_new : Timedelta | None
+                start_datetime : Timestamp | None
+                end_datetime : Timestamp | None
+                annotator : str | list[str] | None
+                annotation : str | list[str] | None
+                record_type : str | None
+                timestamp_file : Path | None
+                user_selection : str = "all"
+                min_frequency : float | None
+                max_frequency : float | None
+                confidence : float | None
+
+        concat : bool, default=True
+            If True, returns a single concatenated DataAplose object.
+            If False, returns a list of DataAplose objects.
 
         Returns
         -------
-        DataAplose:
-        The DataAplose object.
+        DataAplose or list[DataAplose]
+            The constructed object(s).
 
         """
         if isinstance(config, dict):
