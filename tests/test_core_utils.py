@@ -7,7 +7,7 @@ from pandas.tseries import frequencies
 from pytz import timezone
 
 from post_processing.dataclass.data_aplose import DataAplose
-from post_processing.utils.core_utils import (
+from post_processing.utils.core import (
     add_recording_period,
     add_season_period,
     get_coordinates,
@@ -22,7 +22,7 @@ from post_processing.utils.core_utils import (
     set_bar_height,
     timedelta_to_str,
 )
-from post_processing.utils.filtering_utils import add_weak_detection
+from post_processing.utils.filtering import add_weak_detection
 
 
 def test_coordinates_valid_input(monkeypatch: pytest.MonkeyPatch) -> None:

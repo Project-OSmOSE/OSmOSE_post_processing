@@ -23,8 +23,8 @@ from pandas import (
 )
 from pandas.tseries import offsets
 
-from post_processing.utils.core_utils import get_count
-from post_processing.utils.filtering_utils import (
+from post_processing.utils.core import get_count
+from post_processing.utils.filtering import (
     get_annotators,
     get_dataset,
     get_labels,
@@ -33,8 +33,8 @@ from post_processing.utils.filtering_utils import (
     load_detections,
     read_dataframe,
 )
-from post_processing.utils.metrics_utils import detection_perf
-from post_processing.utils.plot_utils import (
+from post_processing.utils.metric import detection_perf
+from post_processing.utils.visualisation import (
     heatmap,
     histo,
     overview,

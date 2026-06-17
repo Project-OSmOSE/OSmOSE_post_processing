@@ -17,8 +17,8 @@ from pandas import (
     to_datetime,
 )
 
-from post_processing.utils.core_utils import round_begin_end_timestamps
-from post_processing.utils.filtering_utils import (
+from post_processing.utils.core import round_begin_end_timestamps
+from post_processing.utils.filtering import (
     find_delimiter,
 )
 

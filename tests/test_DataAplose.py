@@ -13,7 +13,7 @@ from pandas import DataFrame, Timedelta, Timestamp
 from pandas.tseries import frequencies
 
 from post_processing.dataclass.data_aplose import DataAplose, _get_locator_from_offset
-from post_processing.utils.filtering_utils import get_timezone
+from post_processing.utils.filtering import get_timezone
 
 
 def test_data_aplose_str(sample_df: DataFrame) -> None:

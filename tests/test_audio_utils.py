@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from post_processing.utils.audio_utils import create_raven_file_list, normalize_audio
+from post_processing.utils.audio import create_raven_file_list, normalize_audio
 
 
 def test_normalize_audio_default_folder(sample_audio: Path, tmp_path: Path) -> None:
@@ -54,7 +54,9 @@ def test_create_raven_file_list(tmp_audio_dir: Path) -> None:
     expected_files_str = [str(f) for f in expected_files]
 
     assert set(lines) == set(expected_files_str), "All WAV files should be listed"
-    assert all(line.endswith(".wav") for line in lines), "Only WAV files should be listed"
+    assert all(line.endswith(".wav") for line in lines), (
+        "Only WAV files should be listed"
+    )
 
 
 def test_create_raven_file_list_empty_dir(tmp_path: Path) -> None:

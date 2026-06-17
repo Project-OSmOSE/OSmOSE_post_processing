@@ -25,7 +25,7 @@ from pandas import (
 from pandas.tseries import frequencies
 from scipy.stats import pearsonr
 
-from post_processing.utils.core_utils import (
+from post_processing.utils.core import (
     add_season_period,
     get_coordinates,
     get_labels_and_annotators,
@@ -34,7 +34,7 @@ from post_processing.utils.core_utils import (
     timedelta_to_str,
     round_begin_end_timestamps,
 )
-from post_processing.utils.filtering_utils import (
+from post_processing.utils.filtering import (
     filter_by_annotator,
     get_max_time,
     get_timezone,

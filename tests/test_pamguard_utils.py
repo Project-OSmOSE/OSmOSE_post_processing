@@ -6,7 +6,7 @@ from osekit.core_api.audio_data import AudioData
 from pandas import DataFrame, Timestamp
 from pypamguard.chunks.generics import GenericModule
 
-from post_processing.utils.pamguard_utils import process_binary
+from post_processing.utils.pamguard import process_binary
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def test_process_binary_basic(
     fake_audio: AudioData, fake_detection: GenericModule
 ) -> None:
     with patch(
-        "post_processing.utils.pamguard_utils.load_pamguard_binary_folder"
+        "post_processing.utils.pamguard.load_pamguard_binary_folder"
     ) as mock_loader:
         mock_loader.return_value = ([fake_detection], None, None)
 
@@ -70,7 +70,7 @@ def test_process_binary_basic(
 
 def test_process_binary_no_detections(fake_audio: AudioData) -> None:
     with patch(
-        "post_processing.utils.pamguard_utils.load_pamguard_binary_folder"
+        "post_processing.utils.pamguard.load_pamguard_binary_folder"
     ) as mock_loader:
         mock_loader.return_value = ([], None, None)
         df = process_binary(fake_audio, Path("/fake/binary"), "Dataset", "Label")
@@ -83,7 +83,7 @@ def test_process_binary_detection_outside_audio(
     fake_detection.date = "2025-05-28T23:59:00+0000"
 
     with patch(
-        "post_processing.utils.pamguard_utils.load_pamguard_binary_folder"
+        "post_processing.utils.pamguard.load_pamguard_binary_folder"
     ) as mock_loader:
         mock_loader.return_value = ([fake_detection], None, None)
         with pytest.raises(AttributeError):

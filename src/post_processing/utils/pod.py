@@ -22,7 +22,7 @@ from pandas import (
 )
 
 from post_processing import logger
-from post_processing.utils.core_utils import get_coordinates, get_sun_times
+from post_processing.utils.core import get_coordinates, get_sun_times
 
 if TYPE_CHECKING:
     import pytz

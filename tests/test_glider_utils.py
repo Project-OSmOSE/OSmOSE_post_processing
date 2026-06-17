@@ -2,7 +2,7 @@ import matplotlib as mpl
 import pytest
 from numpy import arange, linspace
 
-from post_processing.utils.glider_utils import (
+from post_processing.utils.glider import (
     compute_acoustic_diversity,
     export_gpx,
     get_position_from_timestamp,

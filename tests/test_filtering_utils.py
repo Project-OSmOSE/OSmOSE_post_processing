@@ -8,7 +8,7 @@ import pytest
 import pytz
 from pandas import DataFrame, Timedelta, Timestamp, concat, to_datetime
 
-from post_processing.utils.filtering_utils import (
+from post_processing.utils.filtering import (
     ensure_no_invalid,
     filter_by_annotator,
     filter_by_freq,
