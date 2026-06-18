@@ -106,7 +106,7 @@ def histo(
     legend = kwargs.get("legend", False)
     color = kwargs.get("color", False)
     season = kwargs.get("season", False)
-    effort = kwargs.get("effort", False)
+    effort = kwargs.get("effort", None)
     lat, lon = kwargs.get("coordinates")
 
     bin_size_str = get_bin_size_str(bin_size)

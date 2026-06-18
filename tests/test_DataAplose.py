@@ -179,8 +179,13 @@ def test_set_ax_uses_2hour_locator(sample_df: DataFrame) -> None:
     assert locator._get_interval() == 2  # noqa: PLR2004
 
 
-def test_histo(sample_df: DataFrame) -> None:
-    data = DataAplose(sample_df)
+def test_histo(sample_csv_result: DataFrame, recording_planning_csv: DataFrame) -> None:
+    dict_test = {
+        "detection_file": sample_csv_result,
+        "filename_format": "%Y_%m_%d_%H_%M_%S",
+        "recording_file": recording_planning_csv,
+    }
+    data = DataAplose.from_dict(dict_test)
     _, ax = plt.subplots()
     bin_size = Timedelta("1h")
     tick_freq = frequencies.to_offset("2h")
@@ -195,7 +200,64 @@ def test_histo(sample_df: DataFrame) -> None:
         annotator="ann1",
         label="lbl1",
         bin_size=bin_size,
+        effort=True,
     )
+
+
+def test_histo_no_recording_file_provided(
+    sample_csv_result: DataFrame, recording_planning_csv: DataFrame
+) -> None:
+    dict_test = {
+        "detection_file": sample_csv_result,
+        "filename_format": "%Y_%m_%d_%H_%M_%S",
+        "recording_file": None,
+    }
+    data = DataAplose.from_dict(dict_test)
+    _, ax = plt.subplots()
+    bin_size = Timedelta("1h")
+    tick_freq = frequencies.to_offset("2h")
+    ax = data.set_ax(
+        ax=ax,
+        x_ticks_res=tick_freq,
+        date_format="%y-%m-%d",
+    )
+    with pytest.raises(ValueError, match=r"No recording file provided."):
+        data.plot(
+            mode="histogram",
+            ax=ax,
+            annotator="ann1",
+            label="lbl1",
+            bin_size=bin_size,
+            effort=True,
+        )
+
+
+def test_histo_no_recording_fake_file_provided(
+    sample_csv_result: DataFrame, recording_planning_csv: DataFrame
+) -> None:
+    dict_test = {
+        "detection_file": sample_csv_result,
+        "filename_format": "%Y_%m_%d_%H_%M_%S",
+        "recording_file": Path("fake_file.csv"),
+    }
+    data = DataAplose.from_dict(dict_test)
+    _, ax = plt.subplots()
+    bin_size = Timedelta("1h")
+    tick_freq = frequencies.to_offset("2h")
+    ax = data.set_ax(
+        ax=ax,
+        x_ticks_res=tick_freq,
+        date_format="%y-%m-%d",
+    )
+    with pytest.raises(FileNotFoundError, match=r"File not found"):
+        data.plot(
+            mode="histogram",
+            ax=ax,
+            annotator="ann1",
+            label="lbl1",
+            bin_size=bin_size,
+            effort=True,
+        )
 
 
 @pytest.mark.parametrize("mode", ["scatter", "heatmap", "timeline"])
@@ -299,13 +361,13 @@ def test_from_dict(
     sample_dict: dict,
     sample_df: DataFrame,
 ) -> None:
-    df_from_yaml = DataAplose.from_dict(sample_dict).df
+    df_from_dict = DataAplose.from_dict(sample_dict).df
     df_expected = (
         DataAplose(sample_df)
         .filter_df(annotator="ann1", label="lbl1")
         .reset_index(drop=True)
     )
-    assert df_from_yaml.equals(df_expected)
+    assert df_from_dict.equals(df_expected)
 
 
 def test_from_dict_concat(

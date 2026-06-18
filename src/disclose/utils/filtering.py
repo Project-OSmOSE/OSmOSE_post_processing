@@ -26,7 +26,7 @@ from disclose.utils.core import get_count
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from disclose.dataclass.data_aplose import DataAploseConfig
+    from disclose.dataclass.data_aplose_config import DataAploseConfig
 
 
 def find_delimiter(file: Path) -> str:
@@ -265,6 +265,9 @@ def read_dataframe(file: Path, rows: int | None = None) -> DataFrame:
     )
 
     # legacy update
+    if "is_box" in df.columns:
+        df["is_box"] = df["is_box"].map({0: "WEAK", 1: "BOX"})
+
     df = df.rename(
         columns={
             "start_frequency": "max_frequency",

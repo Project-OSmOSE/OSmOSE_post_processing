@@ -5,7 +5,9 @@ RecordingPeriod class returns a Timestamp list corresponding to recording period
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pandas import (
@@ -15,17 +17,15 @@ from pandas import (
     date_range,
     read_csv,
     to_datetime,
+    DataFrame,
 )
 
+from disclose.dataclass.data_aplose_config import DataAploseConfig
 from disclose.utils.core import round_begin_end_timestamps
-from disclose.utils.filtering import (
-    find_delimiter,
-)
+from disclose.utils.filtering import find_delimiter
 
 if TYPE_CHECKING:
     from pandas.tseries.offsets import BaseOffset
-
-    from disclose.dataclass.data_aplose import DataAploseConfig
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class RecordingPeriod:
     timebin_origin: Timedelta
 
     @classmethod
-    def from_path(
+    def from_config(
         cls,
         config: DataAploseConfig,
         *,
@@ -57,9 +57,7 @@ class RecordingPeriod:
         Parameters
         ----------
         config
-            Configuration object containing at least:
-            - `timestamp_file`: path to CSV
-            - `timebin_origin`: Timedelta resolution of detections
+            DataAploseConfig object.
         bin_size : Timedelta or BaseOffset
             Size of the aggregation bin (e.g. Timedelta("1H") or "1D").
 
@@ -71,45 +69,15 @@ class RecordingPeriod:
 
         """
         # Read CSV and parse datetime columns
-        timestamp_file = config.timestamp_file
-        delim = find_delimiter(timestamp_file)
-        df = read_csv(
-            config.timestamp_file,
-            parse_dates=[
-                "start_recording",
-                "end_recording",
-                "start_deployment",
-                "end_deployment",
-            ],
-            delimiter=delim,
-        )
+        recording_file = config.recording_file
 
-        if df.empty:
-            msg = "CSV is empty."
-            raise ValueError(msg)
+        if not recording_file:
+            raise ValueError("No recording file provided.")
 
-        # Ensure all required columns are present
-        required_columns = {
-            "start_recording",
-            "end_recording",
-            "start_deployment",
-            "end_deployment",
-        }
+        if not recording_file.exists():
+            raise FileNotFoundError(f"File not found: {recording_file}")
 
-        missing = required_columns - set(df.columns)
-
-        if missing:
-            msg = f"CSV is missing required columns: {', '.join(sorted(missing))}"
-            raise ValueError(msg)
-
-        # Normalise timezones: convert to UTC, then remove tz info (naive)
-        for col in [
-            "start_recording",
-            "end_recording",
-            "start_deployment",
-            "end_deployment",
-        ]:
-            df[col] = to_datetime(df[col], utc=True).dt.tz_convert(None)
+        df = cls.from_csv(recording_file)
 
         # Compute effective recording intervals (intersection)
         df["effective_start_recording"] = df[
@@ -119,15 +87,6 @@ class RecordingPeriod:
         df["effective_end_recording"] = df[["end_recording", "end_deployment"]].min(
             axis=1
         )
-
-        # Remove rows with no actual recording interval
-        df = df.loc[
-            df["effective_start_recording"] < df["effective_end_recording"]
-        ].copy()
-
-        if df.empty:
-            msg = "No valid recording intervals after deployment intersection."
-            raise ValueError(msg)
 
         # Build fine-grained timeline at `timebin_origin` resolution
         origin = config.timebin_origin
@@ -160,3 +119,57 @@ class RecordingPeriod:
         )
 
         return cls(counts=counts, timebin_origin=origin)
+
+    @classmethod
+    def from_csv(
+        cls,
+        csv_file: Path,
+    ) -> DataFrame:
+        """Load recording coverage from CSV."""
+        delim = find_delimiter(csv_file)
+        df = read_csv(
+            csv_file,
+            parse_dates=[
+                "start_recording",
+                "end_recording",
+                "start_deployment",
+                "end_deployment",
+            ],
+            delimiter=delim,
+        )
+
+        if df.empty:
+            msg = "CSV is empty."
+            raise ValueError(msg)
+
+        # Normalise timezones: convert to UTC, then remove tz info (naive)
+        for col in df.columns:
+            df[col] = to_datetime(df[col], utc=True).dt.tz_convert(None)
+
+        return df
+
+    @classmethod
+    def from_json(
+        cls,
+        json_file: Path,
+    ) -> DataFrame:
+        """Load recording coverage from JSON."""
+        with json_file.open() as f:
+            data = json.load(f)
+
+        series_list = []
+        for datum in data:
+            series_list.append(
+                Series({
+                    "start_recording": datum["channel_configurations"][0][
+                        "record_start_date"
+                    ],
+                    "end_recording": datum["channel_configurations"][0][
+                        "record_end_date"
+                    ],
+                    "start_deployment": datum["deployment_date"],
+                    "end_deployment": datum["recovery_date"],
+                })
+            )
+
+        return DataFrame(series_list)

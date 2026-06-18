@@ -7,7 +7,6 @@ import pytest
 import soundfile as sf
 from osekit.utils.timestamp import strftime_osmose_format
 from pandas import DataFrame, read_csv
-from pandas.tseries import frequencies
 
 from disclose.dataclass.data_aplose import DataAplose
 
@@ -121,7 +120,6 @@ sample_dataset,2025_01_26_06_20_00,3.30667402095974,4.00165471594043,7875.0,1982
 sample_dataset,2025_01_26_06_20_00,0.0,10.0,0.0,72000.0,lbl2,ann3,2025-01-26T06:20:00.000+00:00,2025-01-26T06:20:10.000+00:00,WEAK,0.58
 """
 
-
 STATUS = """dataset,filename,ann1,ann2,ann3,ann4,ann5,ann6
 sample_dataset,2025_01_25_06_20_00,FINISHED,FINISHED,FINISHED,FINISHED,FINISHED,FINISHED
 sample_dataset,2025_01_25_06_20_10,FINISHED,FINISHED,FINISHED,FINISHED,FINISHED,FINISHED
@@ -132,7 +130,6 @@ sample_dataset,2025_01_25_06_20_50,FINISHED,FINISHED,FINISHED,FINISHED,FINISHED,
 sample_dataset,2025_01_26_06_20_20,FINISHED,FINISHED,FINISHED,FINISHED,FINISHED,FINISHED
 """
 
-# Fake recording planning CSV used for tests
 RECORDING_PLANNING_CSV = """start_recording,end_recording,start_deployment,end_deployment
 2024-01-01 00:00:00+0000,2024-04-09 02:00:00+0000,2024-01-02 00:00:00+0000,2024-04-30 02:00:00+0000
 2024-04-30 01:00:00+0000,2024-07-14 06:00:00+0000,2024-04-30 02:00:00+0000,2024-07-06 14:00:00+0000
@@ -197,7 +194,7 @@ def sample_dict(
         "annotator": "ann1",
         "annotation": "lbl1",
         "type": "BOX",
-        "timestamp_file": sample_csv_timestamp,
+        "recording_file": sample_csv_timestamp,
         "filename_format": "%Y_%m_%d_%H_%M_%S",
         "user_selection": "all",
         "confidence": None,
@@ -246,14 +243,3 @@ def recording_planning_csv(tmp_path) -> Path:
     path = tmp_path / "recording_planning.csv"
     path.write_text(RECORDING_PLANNING_CSV)
     return path
-
-
-@pytest.fixture
-def recording_planning_config(recording_planning_csv):
-    """Minimal config object compatible with RecordingPeriod.from_path."""
-
-    class RecordingPlanningConfig:
-        timestamp_file: Path = recording_planning_csv
-        timebin_origin = frequencies.to_offset("1min")
-
-    return RecordingPlanningConfig()

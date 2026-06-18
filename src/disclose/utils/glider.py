@@ -300,7 +300,7 @@ def compute_acoustic_diversity(
 
     Returns
     -------
-    DataFrame comprised of timestamps, associated position and acoustic diversity
+    DataFrame comprised of timestamps, associated position, and acoustic diversity
 
     """
     # track_data: glider positions at every timestamp
@@ -391,5 +391,6 @@ def export_gpx(nav: DataFrame, output_dir: Path, output_file: str = "trace") -> 
     )
     gpx.waypoints.append(waypoint)
 
+    output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / (output_file + ".gpx")).open("w") as f:
         f.write(gpx.to_xml())

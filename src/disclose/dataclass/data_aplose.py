@@ -8,7 +8,6 @@ plot time-based distributions, and manage metadata such as annotators and labels
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import matplotlib.dates as mdates
@@ -23,16 +22,16 @@ from pandas import (
 )
 from pandas.tseries import offsets
 
+from disclose.dataclass.data_aplose_config import DataAploseConfig
 from disclose.utils.core import get_count
 from disclose.utils.filtering import (
     get_annotators,
     get_dataset,
     get_labels,
-    get_max_time,
     get_timezone,
     load_detections,
-    read_dataframe,
 )
+from disclose.dataclass.recording_period import RecordingPeriod
 from disclose.utils.metric import detection_perf
 from disclose.utils.visualisation import (
     heatmap,
@@ -45,11 +44,9 @@ from disclose.utils.visualisation import (
 
 if TYPE_CHECKING:
     from datetime import tzinfo
-    from pathlib import Path
 
     from pandas.tseries.offsets import BaseOffset
 
-    from disclose.dataclass.recording_period import RecordingPeriod
 
 default_colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
@@ -93,65 +90,6 @@ def _get_locator_from_offset(
     raise ValueError(msg)
 
 
-@dataclass(frozen=True)
-class DataAploseConfig:
-    """Configuration object for loading and filtering APLOSE-formatted detection data.
-
-    Parameters
-    ----------
-    detection_file : Path
-        Path to the detection file to be loaded.
-    timebin_new : Timedelta | None
-        Optional resampling or re-binning time resolution.
-    start_datetime : Timestamp | None
-        Start datetime used to filter detections.
-    end_datetime : Timestamp | None
-        End datetime used to filter detections.
-    annotator : str | list[str] | None
-        Filter for one or multiple annotators.
-    annotation : str | list[str] | None
-        Filter for one or multiple annotation labels.
-    type : str | None
-        Optional detection type filter.
-    timestamp_file : Path | None
-        Optional external timestamp reference file.
-    user_selection : str
-        Strategy for combining multiple filters. Default is "all".
-    min_frequency : float | None
-        Minimum frequency threshold for filtering detections.
-    max_frequency : float | None
-        Maximum frequency threshold for filtering detections.
-    confidence : float | None
-        Minimum confidence threshold for detections.
-    filename_format : str | None
-        Optional filename formatting rule.
-    timebin_origin : Timedelta | None
-        Automatically computed base time bin derived from the detection file.
-        This field is set internally and should not be provided manually.
-
-    """
-
-    detection_file: Path
-    timebin_new: Timedelta | None = None
-    start_datetime: Timestamp | None = None
-    end_datetime: Timestamp | None = None
-    annotator: str | list[str] | None = None
-    annotation: str | list[str] | None = None
-    type: str | None = None
-    timestamp_file: Path | None = None
-    user_selection: str = "all"
-    min_frequency: float | None = None
-    max_frequency: float | None = None
-    confidence: float | None = None
-    filename_format: str | None = None
-    timebin_origin: Timedelta | None = None
-
-    def __post_init__(self) -> None:
-        """Compute derived configuration fields after initialization."""
-        df = read_dataframe(self.detection_file)
-        object.__setattr__(self, "timebin_origin", get_max_time(df))
-
-
 class DataAplose:
     """A class to handle APLOSE formatted data."""
 
@@ -175,13 +113,22 @@ class DataAplose:
                 "annotation",
             ],
         ).reset_index(drop=True)
-        self.annotators = sorted(set(self.df["annotator"])) if df is not None else None
-        self.labels = sorted(set(self.df["annotation"])) if df is not None else None
-        self.start_datetime = min(self.df["start_datetime"], default=None)
-        self.end_datetime = max(self.df["end_datetime"], default=None)
-        self.dataset = sorted(set(self.df["dataset"])) if df is not None else None
-        self.lat = None
-        self.lon = None
+        self.annotators: list | None = (
+            sorted(set(self.df["annotator"])) if df is not None else None
+        )
+        self.labels: list | None = (
+            sorted(set(self.df["annotation"])) if df is not None else None
+        )
+        self.start_datetime: Timestamp | None = min(
+            self.df["start_datetime"], default=None
+        )
+        self.end_datetime: Timestamp | None = max(self.df["end_datetime"], default=None)
+        self.dataset: list | None = (
+            sorted(set(self.df["dataset"])) if df is not None else None
+        )
+        self.lat: float | None = None
+        self.lon: float | None = None
+        self.config: DataAploseConfig | None = None
 
     def __str__(self) -> str:
         """Return string representation of DataAplose object."""
@@ -232,12 +179,23 @@ class DataAplose:
             raise ValueError(msg)
         self.lat, self.lon = value
 
+    @property
+    def config(self) -> DataAploseConfig:
+        """Return the config file."""
+        return self._config
+
+    @config.setter
+    def config(self, value: DataAploseConfig) -> None:
+        self._config = value
+
     def __getitem__(self, item: int) -> Series:
         """Return the row from the underlying DataFrame."""
         return self.df.iloc[item]
 
     @classmethod
-    def from_dict(cls, config: dict | list[dict], *, concat: bool = True) -> DataAplose:
+    def from_dict(
+        cls, config: dict | list[dict], *, concat: bool = True
+    ) -> DataAplose | list[DataAplose]:
         """Create a DataAplose object from a configuration dictionary.
 
         Parameters
@@ -256,7 +214,7 @@ class DataAplose:
                 annotator : str | list[str] | None
                 annotation : str | list[str] | None
                 record_type : str | None
-                timestamp_file : Path | None
+                recording_file : Path | None
                 user_selection : str = "all"
                 min_frequency : float | None
                 max_frequency : float | None
@@ -281,6 +239,7 @@ class DataAplose:
 
         for obj, conf in zip(cls_list, conf_list, strict=True):
             cls.reshape(obj, conf.start_datetime, conf.end_datetime)
+            obj.config = conf
 
         if len(cls_list) == 1:
             return cls_list[0]
@@ -312,6 +271,7 @@ class DataAplose:
         )
 
         obj = cls(df=df_concat)
+        # need to concat conf instances too here
 
         if isinstance(get_timezone(df_concat), list):
             obj.change_tz("utc")
@@ -567,9 +527,9 @@ class DataAplose:
                 Color(s) for the bars.
             - bin_size: Timedelta | BaseOffset
                 Bin size for the histogram.
-            - effort: Series
+            - effort: bool
                 The timestamp intervals corresponding to the observation effort.
-                If provided, data will be normalized by observation effort.
+                If provided by the `recording_file` argument, data will be normalized by observation effort.
 
         """
         df_filtered = self.filter_df(
@@ -582,7 +542,9 @@ class DataAplose:
         legend = kwargs.get("legend", True)
         color = kwargs.get("color")
         season = kwargs.get("season")
-        effort = kwargs.get("effort")
+        effort = kwargs.get("effort", False)
+        if effort:
+            effort = RecordingPeriod.from_config(config=self.config, bin_size=bin_size)
         show_rise_set = kwargs.get("show_rise_set", True)
 
         if mode == "histogram":
