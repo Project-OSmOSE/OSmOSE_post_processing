@@ -25,7 +25,7 @@ from pandas import (
 from pandas.tseries import frequencies
 from scipy.stats import pearsonr
 
-from post_processing.utils.core import (
+from disclose.utils.core import (
     add_season_period,
     get_coordinates,
     get_labels_and_annotators,
@@ -34,7 +34,7 @@ from post_processing.utils.core import (
     timedelta_to_str,
     round_begin_end_timestamps,
 )
-from post_processing.utils.filtering import (
+from disclose.utils.filtering import (
     filter_by_annotator,
     get_max_time,
     get_timezone,
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from pandas.tseries.offsets import BaseOffset
 
-    from post_processing.dataclass.recording_period import RecordingPeriod
+    from disclose.dataclass.recording_period import RecordingPeriod
 
 default_colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 

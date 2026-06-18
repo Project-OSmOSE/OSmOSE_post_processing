@@ -17,15 +17,15 @@ from pandas import (
     to_datetime,
 )
 
-from post_processing.utils.core import round_begin_end_timestamps
-from post_processing.utils.filtering import (
+from disclose.utils.core import round_begin_end_timestamps
+from disclose.utils.filtering import (
     find_delimiter,
 )
 
 if TYPE_CHECKING:
     from pandas.tseries.offsets import BaseOffset
 
-    from post_processing.dataclass.data_aplose import DataAploseConfig
+    from disclose.dataclass.data_aplose import DataAploseConfig
 
 
 @dataclass(frozen=True)

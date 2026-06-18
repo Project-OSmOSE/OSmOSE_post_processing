@@ -21,12 +21,12 @@ from pandas import (
     to_datetime,
 )
 
-from post_processing.utils.core import get_count
+from disclose.utils.core import get_count
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from post_processing.dataclass.data_aplose import DataAploseConfig
+    from disclose.dataclass.data_aplose import DataAploseConfig
 
 
 def find_delimiter(file: Path) -> str:

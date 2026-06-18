@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import pytest
 
-from post_processing.utils.visualisation import (
+from disclose.utils.visualisation import (
     _wrap_xtick_labels,
     get_legend,
     overview,

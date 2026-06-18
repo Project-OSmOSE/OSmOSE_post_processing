@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from post_processing.utils.audio import create_raven_file_list, normalize_audio
+from disclose.utils.audio import create_raven_file_list, normalize_audio
 
 
 def test_normalize_audio_default_folder(sample_audio: Path, tmp_path: Path) -> None:

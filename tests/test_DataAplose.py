@@ -12,8 +12,8 @@ import pytz
 from pandas import DataFrame, Timedelta, Timestamp
 from pandas.tseries import frequencies
 
-from post_processing.dataclass.data_aplose import DataAplose, _get_locator_from_offset
-from post_processing.utils.filtering import get_timezone
+from disclose.dataclass.data_aplose import DataAplose, _get_locator_from_offset
+from disclose.utils.filtering import get_timezone
 
 
 def test_data_aplose_str(sample_df: DataFrame) -> None:
@@ -241,10 +241,10 @@ def test_plot_histogram_missing_bin_size(monkeypatch, sample_df: DataFrame) -> N
 
     monkeypatch.setattr(obj, "filter_df", lambda annotator, label: sample_df)
     monkeypatch.setattr(
-        "post_processing.dataclass.data_aplose.histo", lambda *args, **kwargs: None
+        "disclose.dataclass.data_aplose.histo", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(
-        "post_processing.dataclass.data_aplose.get_count", lambda *args, **kwargs: None
+        "disclose.dataclass.data_aplose.get_count", lambda *args, **kwargs: None
     )
 
     _, ax = plt.subplots()
@@ -420,7 +420,7 @@ def test_data_aplose_overview(monkeypatch, sample_df: DataFrame) -> None:
         called["annotator"] = annotator
 
     monkeypatch.setattr(
-        "post_processing.dataclass.data_aplose.overview",
+        "disclose.dataclass.data_aplose.overview",
         fake_overview,
     )
 
@@ -468,7 +468,7 @@ def test_data_aplose_detection_perf_wrapper_parametrized(
         return (0.1, 0.2, 0.3)
 
     monkeypatch.setattr(
-        "post_processing.dataclass.data_aplose.detection_perf",
+        "disclose.dataclass.data_aplose.detection_perf",
         fake_detection_perf,
     )
 

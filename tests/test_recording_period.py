@@ -1,7 +1,7 @@
 from pandas import Timedelta, read_csv, to_datetime
 
-from post_processing.dataclass.data_aplose import DataAploseConfig
-from post_processing.dataclass.recording_period import RecordingPeriod
+from disclose.dataclass.data_aplose import DataAploseConfig
+from disclose.dataclass.recording_period import RecordingPeriod
 
 
 def test_recording_period_with_gaps(

@@ -7,8 +7,8 @@ import logging
 import numpy as np
 from pandas import DataFrame, DatetimeIndex
 
-from post_processing.utils.core import get_count
-from post_processing.utils.filtering import (
+from disclose.utils.core import get_count
+from disclose.utils.filtering import (
     get_annotators,
     get_labels,
     get_max_time,

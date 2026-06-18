@@ -13,8 +13,8 @@ import pandas as pd
 from pandas import DataFrame, Timedelta, Timestamp, concat
 from tqdm import tqdm
 
-from post_processing.dataclass.trajectory import Trajectory
-from post_processing.glider_config import NAV_STATE
+from disclose.dataclass.trajectory import Trajectory
+from disclose.glider_config import NAV_STATE
 
 if TYPE_CHECKING:
     from pathlib import Path

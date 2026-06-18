@@ -9,7 +9,7 @@ from osekit.utils.timestamp import strftime_osmose_format
 from pandas import DataFrame, read_csv
 from pandas.tseries import frequencies
 
-from post_processing.dataclass.data_aplose import DataAplose
+from disclose.dataclass.data_aplose import DataAplose
 
 SAMPLE = """dataset,filename,start_time,end_time,min_frequency,max_frequency,annotation,annotator,start_datetime,end_datetime,type,confidence
 sample_dataset,2025_01_25_06_20_00,0.0,10.0,0.0,72000.0,lbl2,ann2,2025-01-25T06:20:00.000+00:00,2025-01-25T06:20:10.000+00:00,WEAK,0.11
