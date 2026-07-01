@@ -89,7 +89,11 @@ class RecordingPeriod:
         )
 
         # Build fine-grained timeline at `timebin_origin` resolution
-        origin = config.timebin_origin
+        origin = (
+            config.timebin_origin
+            if isinstance(config.timebin_origin, Timedelta)
+            else max(config.timebin_origin)
+        )
         time_index = date_range(
             start=df["effective_start_recording"].min(),
             end=df["effective_end_recording"].max(),

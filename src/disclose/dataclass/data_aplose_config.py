@@ -8,7 +8,7 @@ from pandas import Timedelta, Timestamp
 from disclose.utils.filtering import read_dataframe, get_max_time
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class DataAploseConfig:
     """Configuration object for loading and filtering APLOSE-formatted detection data.
 
@@ -63,5 +63,56 @@ class DataAploseConfig:
 
     def __post_init__(self) -> None:
         """Compute derived configuration fields after initialization."""
-        df = read_dataframe(self.detection_file)
-        object.__setattr__(self, "timebin_origin", get_max_time(df))
+        if self.timebin_origin is None:
+            df = read_dataframe(self.detection_file)
+            object.__setattr__(self, "timebin_origin", get_max_time(df))
+
+    @classmethod
+    def from_dict(
+        cls, config: dict | list[dict], concat: bool = True
+    ) -> DataAploseConfig | list[DataAploseConfig]:
+        """Create a DataAploseConfig object from a dictionary."""
+        if isinstance(config, dict):
+            config = [config]
+
+        conf_list = [cls(**c) for c in config]
+
+        if concat:
+            return cls.concat(conf_list)
+        else:
+            return conf_list
+
+    @classmethod
+    def concat(
+        cls, config_list: list[DataAploseConfig | None]
+    ) -> DataAploseConfig | None:
+        """Concatenate configuration instances."""
+        if not any(config_list):
+            return None
+
+        vars = list(DataAploseConfig.__dataclass_fields__.keys())
+
+        config_cont = {}
+
+        for var in vars:
+            values = [
+                config.__getattribute__(var)
+                for config in config_list
+                if config.__getattribute__(var) is not None
+            ]
+
+            unique_values = sorted(set(values))
+
+            if len(unique_values) == 1:
+                config_cont[var] = unique_values[0]
+            elif len(unique_values) > 1:
+                if var == "start_datetime":
+                    config_cont[var] = min(unique_values)
+                elif var == "end_datetime":
+                    config_cont[var] = max(unique_values)
+                else:
+                    config_cont[var] = unique_values
+            else:
+                config_cont[var] = None
+
+        return cls(**config_cont)

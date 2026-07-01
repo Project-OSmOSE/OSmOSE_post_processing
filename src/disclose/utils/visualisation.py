@@ -149,7 +149,6 @@ def histo(
     ax.set_ylabel(f"Detections ({timedelta_to_str(time_bin)})")
     ax.set_xlabel(f"Bin size ({bin_size_str})")
     set_plot_title(ax, annotators, labels)
-    ax.set_xlim(begin, end)
 
     if effort:
         shade_no_effort(
@@ -609,10 +608,12 @@ def get_legend(annotators: str | list[str], labels: str | list[str]) -> list[str
 
 
 def get_bin_size_str(bin_size: Timedelta | BaseOffset) -> str:
-    """Return bin size as a string."""
-    if isinstance(bin_size, Timedelta):
-        return timedelta_to_str(bin_size)
-    return str(bin_size.n) + bin_size.freqstr
+    """Return the bin size as a string."""
+    return (
+        timedelta_to_str(bin_size)
+        if isinstance(bin_size, Timedelta)
+        else bin_size.freqstr
+    )
 
 
 def set_y_axis_to_percentage(ax: plt.Axes, max_val: float) -> None:

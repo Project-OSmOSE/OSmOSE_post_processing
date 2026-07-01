@@ -267,8 +267,7 @@ def test_filter_weak_only_invalid() -> None:
 
 
 def test_filter_weak_empty(sample_df: DataFrame) -> None:
-    with pytest.raises(ValueError, match="No weak detection found"):
-        filter_strong_detection(sample_df[sample_df["type"] == "BOX"])
+    assert filter_strong_detection(sample_df[sample_df["type"] == "BOX"]).empty
 
 
 def test_get_annotators(sample_df: DataFrame) -> None:

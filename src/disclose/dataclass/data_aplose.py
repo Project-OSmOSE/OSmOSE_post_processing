@@ -95,7 +95,8 @@ class DataAplose:
 
     def __init__(
         self,
-        df: DataFrame = None,
+        df: DataFrame | None = None,
+        config: DataAploseConfig | None = None,
     ) -> None:
         """Initialize a DataAplose object from a DataFrame.
 
@@ -105,6 +106,8 @@ class DataAplose:
             APLOSE-formatted DataFrame
 
         """
+        self.config: DataAploseConfig = config
+
         self.df = df.sort_values(
             by=[
                 "start_datetime",
@@ -119,16 +122,21 @@ class DataAplose:
         self.labels: list | None = (
             sorted(set(self.df["annotation"])) if df is not None else None
         )
-        self.start_datetime: Timestamp | None = min(
-            self.df["start_datetime"], default=None
+        self.start_datetime: Timestamp | None = (
+            config.start_datetime
+            if config
+            else min(self.df["start_datetime"], default=None)
         )
-        self.end_datetime: Timestamp | None = max(self.df["end_datetime"], default=None)
+        self.end_datetime: Timestamp | None = (
+            config.end_datetime
+            if config
+            else max(self.df["end_datetime"], default=None)
+        )
         self.dataset: list | None = (
             sorted(set(self.df["dataset"])) if df is not None else None
         )
         self.lat: float | None = None
         self.lon: float | None = None
-        self.config: DataAploseConfig | None = None
 
     def __str__(self) -> str:
         """Return string representation of DataAplose object."""
@@ -213,7 +221,7 @@ class DataAplose:
                 end_datetime : Timestamp | None
                 annotator : str | list[str] | None
                 annotation : str | list[str] | None
-                record_type : str | None
+                type : str | None
                 recording_file : Path | None
                 user_selection : str = "all"
                 min_frequency : float | None
@@ -230,12 +238,10 @@ class DataAplose:
             The constructed object(s).
 
         """
-        if isinstance(config, dict):
-            config = [config]
-
-        conf_list = [DataAploseConfig(**c) for c in config]
+        conf_list = DataAploseConfig.from_dict(config=config, concat=False)
 
         cls_list = [cls(load_detections(conf)) for conf in conf_list]
+        cls.config = cls_list
 
         for obj, conf in zip(cls_list, conf_list, strict=True):
             cls.reshape(obj, conf.start_datetime, conf.end_datetime)
@@ -270,8 +276,17 @@ class DataAplose:
             .reset_index(drop=True)
         )
 
-        obj = cls(df=df_concat)
-        # need to concat conf instances too here
+        # messy, need improvement
+        for data in data_list:
+            if data.config:
+                if not data.config.start_datetime:
+                    data.config.start_datetime = min(df_concat["start_datetime"])
+                if not data.config.end_datetime:
+                    data.config.end_datetime = max(df_concat["end_datetime"])
+
+        config = DataAploseConfig.concat([data.config for data in data_list])
+
+        obj = cls(df=df_concat, config=config)
 
         if isinstance(get_timezone(df_concat), list):
             obj.change_tz("utc")
@@ -537,7 +552,7 @@ class DataAplose:
             label,
         )
 
-        time = date_range(self.start_datetime, self.end_datetime)
+        dates = date_range(self.start_datetime, self.end_datetime)
         bin_size = kwargs.get("bin_size")
         legend = kwargs.get("legend", True)
         color = kwargs.get("color")
@@ -548,7 +563,7 @@ class DataAplose:
         show_rise_set = kwargs.get("show_rise_set", True)
 
         if mode == "histogram":
-            ax.set_xlim(time[0], time[-1])
+            ax.set_xlim(self.start_datetime, self.end_datetime)
             if not bin_size:
                 msg = "'bin_size' missing for histogram plot."
                 raise ValueError(msg)
@@ -567,23 +582,23 @@ class DataAplose:
             )
 
         if mode == "heatmap":
-            ax.set_xlim(time[0], time[-1])
+            ax.set_xlim(self.start_datetime, self.end_datetime)
             return heatmap(
                 df=df_filtered,
                 ax=ax,
                 bin_size=bin_size,
-                time_range=time,
+                time_range=dates,
                 show_rise_set=show_rise_set,
                 season=season,
                 coordinates=self.coordinates,
             )
 
         if mode == "scatter":
-            ax.set_xlim(time[0], time[-1])
+            ax.set_xlim(self.start_datetime, self.end_datetime)
             return scatter(
                 df=df_filtered,
                 ax=ax,
-                time_range=time,
+                time_range=dates,
                 show_rise_set=show_rise_set,
                 season=season,
                 coordinates=self.coordinates,
@@ -598,7 +613,7 @@ class DataAplose:
             return plot_annotator_agreement(df=df_counts, bin_size=bin_size, ax=ax)
 
         if mode == "timeline":
-            ax.set_xlim(time[0], time[-1])
+            ax.set_xlim(self.start_datetime, self.end_datetime)
             color = kwargs.get("color")
             df_filtered = self.filter_df(
                 annotator,

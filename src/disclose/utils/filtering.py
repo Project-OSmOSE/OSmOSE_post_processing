@@ -82,9 +82,6 @@ def filter_strong_detection(
     else:
         msg = "Could not determine annotation type."
         raise ValueError(msg)
-    if df.empty:
-        msg = "No weak detection found."
-        raise ValueError(msg)
     return df
 
 
