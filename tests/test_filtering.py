@@ -8,7 +8,7 @@ import pytest
 import pytz
 from pandas import DataFrame, Timedelta, Timestamp, concat, to_datetime
 
-from post_processing.utils.filtering_utils import (
+from disclose.utils.filtering import (
     ensure_no_invalid,
     filter_by_annotator,
     filter_by_freq,
@@ -267,8 +267,7 @@ def test_filter_weak_only_invalid() -> None:
 
 
 def test_filter_weak_empty(sample_df: DataFrame) -> None:
-    with pytest.raises(ValueError, match="No weak detection found"):
-        filter_strong_detection(sample_df[sample_df["type"] == "BOX"])
+    assert filter_strong_detection(sample_df[sample_df["type"] == "BOX"]).empty
 
 
 def test_get_annotators(sample_df: DataFrame) -> None:
@@ -288,7 +287,7 @@ def test_get_max_freq(sample_df: DataFrame) -> None:
 
 
 def test_get_max_time(sample_df: DataFrame) -> None:
-    assert get_max_time(sample_df) == sample_df["end_time"].max()
+    assert get_max_time(sample_df) == Timedelta(sample_df["end_time"].max(), "s")
 
 
 def test_get_dataset(sample_df: DataFrame) -> None:

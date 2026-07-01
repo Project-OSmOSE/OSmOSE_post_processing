@@ -22,17 +22,18 @@ from pandas import (
 )
 from pandas.tseries import offsets
 
-from post_processing.dataclass.detection_filter import DetectionFilter
-from post_processing.utils.core_utils import get_count
-from post_processing.utils.filtering_utils import (
+from disclose.dataclass.data_aplose_config import DataAploseConfig
+from disclose.utils.core import get_count
+from disclose.utils.filtering import (
     get_annotators,
     get_dataset,
     get_labels,
     get_timezone,
     load_detections,
 )
-from post_processing.utils.metrics_utils import detection_perf
-from post_processing.utils.plot_utils import (
+from disclose.dataclass.recording_period import RecordingPeriod
+from disclose.utils.metric import detection_perf
+from disclose.utils.visualisation import (
     heatmap,
     histo,
     overview,
@@ -43,11 +44,9 @@ from post_processing.utils.plot_utils import (
 
 if TYPE_CHECKING:
     from datetime import tzinfo
-    from pathlib import Path
 
     from pandas.tseries.offsets import BaseOffset
 
-    from post_processing.dataclass.recording_period import RecordingPeriod
 
 default_colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
@@ -96,23 +95,19 @@ class DataAplose:
 
     def __init__(
         self,
-        df: DataFrame = None,
-        *,
-        begin: Timestamp = None,
-        end: Timestamp = None,
+        df: DataFrame | None = None,
+        config: DataAploseConfig | None = None,
     ) -> None:
         """Initialize a DataAplose object from a DataFrame.
 
         Parameters
         ----------
         df: DataFrame
-            APLOSE formatted DataFrame
-        begin: Timestamp
-            The start datetime of the data.
-        end: Timestamp
-            The end datetime of the data.
+            APLOSE-formatted DataFrame
 
         """
+        self.config: DataAploseConfig = config
+
         self.df = df.sort_values(
             by=[
                 "start_datetime",
@@ -121,21 +116,33 @@ class DataAplose:
                 "annotation",
             ],
         ).reset_index(drop=True)
-        self.annotators = sorted(set(self.df["annotator"])) if df is not None else None
-        self.labels = sorted(set(self.df["annotation"])) if df is not None else None
-        self.begin = (
-            min(self.df["start_datetime"], default=None) if begin is None else begin
+        self.annotators: list | None = (
+            sorted(set(self.df["annotator"])) if df is not None else None
         )
-        self.end = max(self.df["end_datetime"], default=None) if end is None else end
-        self.dataset = sorted(set(self.df["dataset"])) if df is not None else None
-        self.lat = None
-        self.lon = None
+        self.labels: list | None = (
+            sorted(set(self.df["annotation"])) if df is not None else None
+        )
+        self.start_datetime: Timestamp | None = (
+            config.start_datetime
+            if config
+            else min(self.df["start_datetime"], default=None)
+        )
+        self.end_datetime: Timestamp | None = (
+            config.end_datetime
+            if config
+            else max(self.df["end_datetime"], default=None)
+        )
+        self.dataset: list | None = (
+            sorted(set(self.df["dataset"])) if df is not None else None
+        )
+        self.lat: float | None = None
+        self.lon: float | None = None
 
     def __str__(self) -> str:
         """Return string representation of DataAplose object."""
         return (
-            f"begin: {self.begin}\n"
-            f"end: {self.end}\n"
+            f"start_datetime: {self.start_datetime}\n"
+            f"end_datetime: {self.end_datetime}\n"
             f"annotators: {self.annotators}\n"
             f"labels: {self.labels}\n"
             f"dataset: {self.dataset}"
@@ -180,9 +187,152 @@ class DataAplose:
             raise ValueError(msg)
         self.lat, self.lon = value
 
+    @property
+    def config(self) -> DataAploseConfig:
+        """Return the config file."""
+        return self._config
+
+    @config.setter
+    def config(self, value: DataAploseConfig) -> None:
+        self._config = value
+
     def __getitem__(self, item: int) -> Series:
         """Return the row from the underlying DataFrame."""
         return self.df.iloc[item]
+
+    @classmethod
+    def from_dict(
+        cls, config: dict | list[dict], *, concat: bool = True
+    ) -> DataAplose | list[DataAplose]:
+        """Create a DataAplose object from a configuration dictionary.
+
+        Parameters
+        ----------
+        config : dict | list[dict]
+            Configuration dictionary or list of configuration dictionaries.
+
+            Required keys:
+                detection_file : Path
+                filename_format : str
+
+            Optional keys:
+                timebin_new : Timedelta | None
+                start_datetime : Timestamp | None
+                end_datetime : Timestamp | None
+                annotator : str | list[str] | None
+                annotation : str | list[str] | None
+                type : str | None
+                recording_file : Path | None
+                user_selection : str = "all"
+                min_frequency : float | None
+                max_frequency : float | None
+                confidence : float | None
+
+        concat : bool, default=True
+            If True, returns a single concatenated DataAplose object.
+            If False, returns a list of DataAplose objects.
+
+        Returns
+        -------
+        DataAplose or list[DataAplose]
+            The constructed object(s).
+
+        """
+        conf_list = DataAploseConfig.from_dict(config=config, concat=False)
+
+        cls_list = [cls(load_detections(conf)) for conf in conf_list]
+        cls.config = cls_list
+
+        for obj, conf in zip(cls_list, conf_list, strict=True):
+            cls.reshape(obj, conf.start_datetime, conf.end_datetime)
+            obj.config = conf
+
+        if len(cls_list) == 1:
+            return cls_list[0]
+
+        if concat:
+            return cls.concatenate(cls_list)
+        return cls_list
+
+    @classmethod
+    def concatenate(
+        cls,
+        data_list: list[DataAplose],
+    ) -> DataAplose:
+        """Concatenate a list of DataAplose objects into one."""
+        df_concat = (
+            concat(
+                [data.df for data in data_list],
+                ignore_index=True,
+            )
+            .sort_values(
+                by=[
+                    "start_datetime",
+                    "end_datetime",
+                    "annotator",
+                    "annotation",
+                ],
+            )
+            .reset_index(drop=True)
+        )
+
+        # messy, need improvement
+        for data in data_list:
+            if data.config:
+                if not data.config.start_datetime:
+                    data.config.start_datetime = min(df_concat["start_datetime"])
+                if not data.config.end_datetime:
+                    data.config.end_datetime = max(df_concat["end_datetime"])
+
+        config = DataAploseConfig.concat([data.config for data in data_list])
+
+        obj = cls(df=df_concat, config=config)
+
+        if isinstance(get_timezone(df_concat), list):
+            obj.change_tz("utc")
+            msg = (
+                "Several timezones found in DataFrame,"
+                " all timestamps are converted to UTC."
+            )
+            logging.info(msg)
+        return obj
+
+    def reshape(
+        self, start_datetime: Timestamp = None, end_datetime: Timestamp = None
+    ) -> DataAplose:
+        """Reshape the DataAplose with a new beginning and/or end."""
+        if not any([start_datetime, end_datetime]):
+            msg = "No begin/end timestamps provided for reshape of DataAplose instance."
+            logging.debug(msg)
+            return self
+
+        tz = get_timezone(self.df)
+        if start_datetime:
+            self.start_datetime = start_datetime
+            if not start_datetime.tz:
+                self.start_datetime = start_datetime.tz_localize(tz)
+        if end_datetime:
+            self.end_datetime = end_datetime
+            if not end_datetime.tz:
+                self.end_datetime = end_datetime.tz_localize(tz)
+
+        if self.start_datetime >= self.end_datetime:
+            msg = "Begin timestamp is not anterior than end timestamp."
+            raise ValueError(msg)
+
+        self.df = self.df[
+            (self.df["start_datetime"] >= self.start_datetime)
+            & (self.df["end_datetime"] <= self.end_datetime)
+        ]
+
+        if self.df.empty:
+            return self
+
+        self.dataset = get_dataset(self.df)
+        self.labels = get_labels(self.df)
+        self.annotators = get_annotators(self.df)
+
+        return self
 
     def change_tz(self, tz: str | tzinfo) -> None:
         """Change the timezone of a DataAplose instance.
@@ -206,8 +356,8 @@ class DataAplose:
         self.df["end_datetime"] = [
             elem.tz_convert(tz) for elem in self.df["end_datetime"]
         ]
-        self.begin = self.begin.tz_convert(tz)
-        self.end = self.end.tz_convert(tz)
+        self.start_datetime = self.start_datetime.tz_convert(tz)
+        self.end_datetime = self.end_datetime.tz_convert(tz)
 
     def filter_df(
         self,
@@ -295,7 +445,9 @@ class DataAplose:
         ax.xaxis.set_major_locator(
             _get_locator_from_offset(offset=x_ticks_res),
         )
-        date_formatter = mdates.DateFormatter(fmt=date_format, tz=self.begin.tz)
+        date_formatter = mdates.DateFormatter(
+            fmt=date_format, tz=self.start_datetime.tz
+        )
         ax.xaxis.set_major_formatter(date_formatter)
         ax.grid(linestyle="--", linewidth=0.2, axis="both", zorder=1)
 
@@ -348,7 +500,7 @@ class DataAplose:
         return detection_perf(
             df=df_filtered,
             ref=ref,
-            time=date_range(self.begin, self.end, freq=timebin),
+            time=date_range(self.start_datetime, self.end_datetime, freq=timebin),
         )
 
     def plot(
@@ -390,9 +542,9 @@ class DataAplose:
                 Color(s) for the bars.
             - bin_size: Timedelta | BaseOffset
                 Bin size for the histogram.
-            - effort: Series
+            - effort: bool
                 The timestamp intervals corresponding to the observation effort.
-                If provided, data will be normalized by observation effort.
+                If provided by the `recording_file` argument, data will be normalized by observation effort.
 
         """
         df_filtered = self.filter_df(
@@ -400,16 +552,18 @@ class DataAplose:
             label,
         )
 
-        time = date_range(self.begin, self.end)
+        dates = date_range(self.start_datetime, self.end_datetime)
         bin_size = kwargs.get("bin_size")
         legend = kwargs.get("legend", True)
         color = kwargs.get("color")
         season = kwargs.get("season")
-        effort = kwargs.get("effort")
+        effort = kwargs.get("effort", False)
+        if effort:
+            effort = RecordingPeriod.from_config(config=self.config, bin_size=bin_size)
         show_rise_set = kwargs.get("show_rise_set", True)
 
         if mode == "histogram":
-            ax.set_xlim(time[0], time[-1])
+            ax.set_xlim(self.start_datetime, self.end_datetime)
             if not bin_size:
                 msg = "'bin_size' missing for histogram plot."
                 raise ValueError(msg)
@@ -428,23 +582,23 @@ class DataAplose:
             )
 
         if mode == "heatmap":
-            ax.set_xlim(time[0], time[-1])
+            ax.set_xlim(self.start_datetime, self.end_datetime)
             return heatmap(
                 df=df_filtered,
                 ax=ax,
                 bin_size=bin_size,
-                time_range=time,
+                time_range=dates,
                 show_rise_set=show_rise_set,
                 season=season,
                 coordinates=self.coordinates,
             )
 
         if mode == "scatter":
-            ax.set_xlim(time[0], time[-1])
+            ax.set_xlim(self.start_datetime, self.end_datetime)
             return scatter(
                 df=df_filtered,
                 ax=ax,
-                time_range=time,
+                time_range=dates,
                 show_rise_set=show_rise_set,
                 season=season,
                 coordinates=self.coordinates,
@@ -459,7 +613,7 @@ class DataAplose:
             return plot_annotator_agreement(df=df_counts, bin_size=bin_size, ax=ax)
 
         if mode == "timeline":
-            ax.set_xlim(time[0], time[-1])
+            ax.set_xlim(self.start_datetime, self.end_datetime)
             color = kwargs.get("color")
             df_filtered = self.filter_df(
                 annotator,
@@ -469,138 +623,3 @@ class DataAplose:
 
         msg = f"Unsupported plot mode: {mode}"
         raise ValueError(msg)
-
-    @classmethod
-    def from_yaml(
-        cls,
-        file: Path,
-        *,
-        concat: bool = True,
-    ) -> DataAplose | list[DataAplose]:
-        """Return a DataAplose object from a YAML file.
-
-        Parameters
-        ----------
-        file: Path
-            The path to a YAML configuration file.
-        concat: bool
-            If set to True, the DataAplose objects will be concatenated.
-            If set to False, the DataAplose objects will be returned as a list.
-
-        Returns
-        -------
-        DataAplose:
-        The DataAplose object.
-
-        """
-        filters = DetectionFilter.from_yaml(file=file)
-        return cls.from_filters(filters, concat=concat)
-
-    @classmethod
-    def from_filters(
-        cls,
-        filters: DetectionFilter | list[DetectionFilter],
-        *,
-        concat: bool = False,
-    ) -> DataAplose | list[DataAplose]:
-        """Return a DataAplose object from a YAML file.
-
-        Parameters
-        ----------
-        filters: DetectionFilter | list[DetectionFilters]
-            Object containing the detection filters.
-        concat: bool
-            If set to True, the DataAplose objects will be concatenated.
-            If set to False, the DataAplose objects will be returned as a list.
-
-        Returns
-        -------
-        DataAplose:
-        The DataAplose object.
-
-        """
-        if isinstance(filters, DetectionFilter):
-            filters = [filters]
-        cls_list = [cls(load_detections(fil)) for fil in filters]
-
-        for cls_obj, fil in zip(cls_list, filters, strict=True):
-            cls.reshape(cls_obj, fil.begin, fil.end)
-
-        if len(cls_list) == 1:
-            return cls_list[0]
-
-        if concat:
-            return cls.concatenate(cls_list)
-        return cls_list
-
-    @classmethod
-    def concatenate(
-        cls,
-        data_list: list[DataAplose],
-    ) -> DataAplose:
-        """Concatenate a list of DataAplose objects into one."""
-        df_concat = (
-            concat(
-                [data.df for data in data_list],
-                ignore_index=True,
-            )
-            .sort_values(
-                by=[
-                    "start_datetime",
-                    "end_datetime",
-                    "annotator",
-                    "annotation",
-                ],
-            )
-            .reset_index(drop=True)
-        )
-
-        obj = cls(
-            df=df_concat,
-            begin=min(obj.begin for obj in data_list),
-            end=max(obj.end for obj in data_list),
-        )
-
-        if isinstance(get_timezone(df_concat), list):
-            obj.change_tz("utc")
-            msg = (
-                "Several timezones found in DataFrame,"
-                " all timestamps are converted to UTC."
-            )
-            logging.info(msg)
-        return obj
-
-    def reshape(self, begin: Timestamp = None, end: Timestamp = None) -> DataAplose:
-        """Reshape the DataAplose with a new beginning and/or end."""
-        if not any([begin, end]):
-            msg = "No begin/end timestamps provided for reshape of DataAplose instance."
-            logging.debug(msg)
-            return self
-
-        tz = get_timezone(self.df)
-        if begin:
-            self.begin = begin
-            if not begin.tz:
-                self.begin = begin.tz_localize(tz)
-        if end:
-            self.end = end
-            if not end.tz:
-                self.end = end.tz_localize(tz)
-
-        if self.begin >= self.end:
-            msg = "Begin timestamp is not anterior than end timestamp."
-            raise ValueError(msg)
-
-        self.df = self.df[
-            (self.df["start_datetime"] >= self.begin)
-            & (self.df["end_datetime"] <= self.end)
-        ]
-
-        if self.df.empty:
-            return self
-
-        self.dataset = get_dataset(self.df)
-        self.labels = get_labels(self.df)
-        self.annotators = get_annotators(self.df)
-
-        return self

@@ -6,7 +6,7 @@ from _pytest.monkeypatch import MonkeyPatch
 from numpy import array
 from pandas import DataFrame
 
-from post_processing.utils.metrics_utils import detection_perf
+from disclose.utils.metric import detection_perf
 
 
 @pytest.mark.parametrize(
@@ -62,7 +62,7 @@ def test_detection_perf_confusion_matrix_errors(
             "lbl2-ann2": array([1, 0, 2, 1, 0, 1234]),
         })
 
-    monkeypatch.setattr("post_processing.utils.metrics_utils.get_count", fake_get_count)
+    monkeypatch.setattr("disclose.utils.metric.get_count", fake_get_count)
 
     filtered_df = sample_df[
         (sample_df["annotation"] == "lbl2")
@@ -87,7 +87,7 @@ def test_detection_perf_confusion_matrix_no_data(
             "lbl2-ann2": array([0] * 10),
         })
 
-    monkeypatch.setattr("post_processing.utils.metrics_utils.get_count", fake_get_count)
+    monkeypatch.setattr("disclose.utils.metric.get_count", fake_get_count)
 
     filtered_df = sample_df[
         (sample_df["annotation"] == "lbl2")

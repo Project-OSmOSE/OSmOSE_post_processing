@@ -2,7 +2,7 @@ import matplotlib as mpl
 import pytest
 from numpy import arange, linspace
 
-from post_processing.utils.glider_utils import (
+from disclose.utils.glider import (
     compute_acoustic_diversity,
     export_gpx,
     get_position_from_timestamp,
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from pandas import DataFrame, Timedelta, date_range
 
-from post_processing.dataclass.trajectory import Trajectory
+from disclose.dataclass.trajectory import Trajectory
 
 
 @pytest.fixture

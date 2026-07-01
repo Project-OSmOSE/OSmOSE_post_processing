@@ -6,9 +6,9 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "OSmOSE_post_processing"
-copyright = "2025, Mathieu Dupont"
-author = "Mathieu Dupont"
+project = "disclOSE"
+copyright = "OSmOSE"
+author = "OSmOSE"
 release = "0.0.1"
 
 # -- General configuration ---------------------------------------------------
@@ -26,7 +26,7 @@ autoclass_content = "both"
 
 html_theme = "sphinx_book_theme"
 html_logo = "../logo/osekit_small.png"
-html_title = "post_processing"
+html_title = "disclose"
 
 html_theme_options = {
     "repository_url": "https://github.com/mathieudpnt/OSmOSE_post_processing",

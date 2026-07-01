@@ -13,8 +13,8 @@ import pandas as pd
 from pandas import DataFrame, Timedelta, Timestamp, concat
 from tqdm import tqdm
 
-from post_processing.dataclass.trajectory import Trajectory
-from post_processing.glider_config import NAV_STATE
+from disclose.dataclass.trajectory import Trajectory
+from disclose.glider_config import NAV_STATE
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -300,7 +300,7 @@ def compute_acoustic_diversity(
 
     Returns
     -------
-    DataFrame comprised of timestamps, associated position and acoustic diversity
+    DataFrame comprised of timestamps, associated position, and acoustic diversity
 
     """
     # track_data: glider positions at every timestamp
@@ -391,5 +391,6 @@ def export_gpx(nav: DataFrame, output_dir: Path, output_file: str = "trace") -> 
     )
     gpx.waypoints.append(waypoint)
 
+    output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / (output_file + ".gpx")).open("w") as f:
         f.write(gpx.to_xml())
